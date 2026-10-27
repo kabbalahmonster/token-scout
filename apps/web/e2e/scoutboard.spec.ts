@@ -30,6 +30,19 @@ test('candidate filters collapse on mobile and remain usable', async ({ page }) 
   await expect(page.getByLabel('Search candidates')).toBeVisible();
 });
 
+test('candidate filters and sorting survive a reload', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Market profile').selectOption('new');
+  await page.getByLabel('Asset type').selectOption('tokenized_stock');
+  await page.getByLabel('Sort candidates').selectOption('volume');
+  await page.getByRole('button', { name: /Sort descending; change direction/ }).click();
+  await page.reload();
+  await expect(page.getByLabel('Market profile')).toHaveValue('new');
+  await expect(page.getByLabel('Asset type')).toHaveValue('tokenized_stock');
+  await expect(page.getByLabel('Sort candidates')).toHaveValue('volume');
+  await expect(page.getByRole('button', { name: /Sort ascending; change direction/ })).toBeVisible();
+});
+
 test('upstream API throttling is visible instead of fabricating candidates', async ({ page }) => {
   await page.route('**/api/v1/candidates**', async (route) => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ message: 'Rate limit reached' }) }));
   await page.goto('/');

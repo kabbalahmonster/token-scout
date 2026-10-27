@@ -164,6 +164,8 @@ navigation, plain-language explanations, and tooltips for every score/flag.
 ### Token detail
 
 - Overview, score/verdict explanation, metric cards and market/pool breakdown.
+- Persistent Scoutboard filters/sorting plus interactive two-point price-chart
+  comparison with observed market details and percentage change.
 - Interactive chart from retained snapshots; visibly break lines at data gaps.
 - Swing study, event ledger, route-test results, source freshness, contract
   evidence, every flag, historical score changes, notes/tags, and exports.

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
@@ -12,11 +12,18 @@ type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 's
 const headerSorts: Record<string, CandidateSort> = { token: 'token', assetType: 'asset_type', score: 'score', verdict: 'verdict', state: 'state', liquidity: 'liquidity', marketCap: 'market_cap', volume: 'volume', age: 'age', swingScore: 'swing', routeState: 'route', flags: 'flags' };
 const assetTypeLabels: Record<AssetType, string> = { crypto: 'Crypto', tokenized_stock: 'Tokenized stock', stablecoin: 'Stablecoin' };
 type MarketProfile = 'quality' | 'established' | 'maturing' | 'new' | 'all';
+interface ScoutboardSettings { search: string; assetType: AssetType | ''; marketProfile: MarketProfile; verdict: string; minScore: string; routeState: string; sort: CandidateSort; direction: 'asc' | 'desc'; filtersOpen?: boolean }
+const settingsKey = 'doomscout.scoutboardSettings';
+function savedSettings(): Partial<ScoutboardSettings> {
+  try { return JSON.parse(localStorage.getItem(settingsKey) ?? '{}') as Partial<ScoutboardSettings>; } catch { return {}; }
+}
 export function Scoutboard() {
-  const [search, setSearch] = useState(''); const [assetType, setAssetType] = useState<AssetType | ''>('crypto'); const [marketProfile, setMarketProfile] = useState<MarketProfile>('quality'); const [verdict, setVerdict] = useState(''); const [minScore, setMinScore] = useState(''); const [routeState, setRouteState] = useState(''); const [sort, setSort] = useState<CandidateSort>('score'); const [direction, setDirection] = useState<'asc' | 'desc'>('desc'); const [presetName, setPresetName] = useState('');
-  const [filtersOpen, setFiltersOpen] = useState(() => window.matchMedia('(min-width: 761px)').matches);
+  const [initial] = useState(savedSettings);
+  const [search, setSearch] = useState(initial.search ?? ''); const [assetType, setAssetType] = useState<AssetType | ''>(initial.assetType ?? 'crypto'); const [marketProfile, setMarketProfile] = useState<MarketProfile>(initial.marketProfile ?? 'quality'); const [verdict, setVerdict] = useState(initial.verdict ?? ''); const [minScore, setMinScore] = useState(initial.minScore ?? ''); const [routeState, setRouteState] = useState(initial.routeState ?? ''); const [sort, setSort] = useState<CandidateSort>(initial.sort ?? 'score'); const [direction, setDirection] = useState<'asc' | 'desc'>(initial.direction ?? 'desc'); const [presetName, setPresetName] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(() => initial.filtersOpen ?? window.matchMedia('(min-width: 761px)').matches);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [presets, setPresets] = useState<Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>; } catch { return []; } });
+  useEffect(() => { localStorage.setItem(settingsKey, JSON.stringify({ search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen } satisfies ScoutboardSettings)); }, [search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen]);
   const params = new URLSearchParams(); if (search) params.set('search', search); if (assetType) params.set('assetType', assetType); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState);
   if (marketProfile === 'quality') { params.set('minPairAgeDays', '30'); params.set('minLiquidityUsd', '25000'); params.set('minVolumeUsd', '1000'); if (!minScore || Number(minScore) < 50) params.set('minScore', '50'); }
   else if (marketProfile === 'established') params.set('minPairAgeDays', '30');

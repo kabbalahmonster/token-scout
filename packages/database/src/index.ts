@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Decimal } from 'decimal.js';
 import { classifyAssetType, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
-import type { DatabaseSchema } from './schema.js';
+import type { DatabaseSchema, RouteAssessmentTable, SnapshotTable, SwingStudyTable } from './schema.js';
 
 const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -103,12 +103,26 @@ export class Repositories {
     // Enrichment-backed sorts (liquidity, volume, route, flags, and swing) are
     // computed below, so pagination must happen after filtering and sorting.
     const rows = await query.orderBy('score', 'desc').execute();
-    let candidates = await Promise.all(rows.map(async (row) => {
-      const address = row.address as Address;
-      const [latestSnapshot, study, route] = await Promise.all([this.latestSnapshot(row.chain_id, address), this.latestSwingStudy(row.chain_id, address), this.latestRouteAssessment(row.chain_id, address)]);
+    // Load enrichment in three set-based queries. The former implementation
+    // issued snapshot, swing, and route queries for every candidate (N+1),
+    // which made a broad Scoutboard request perform thousands of SQLite calls.
+    const [snapshotResult, swingResult, routeResult] = await Promise.all([
+      sql<SnapshotTable & { rn: number }>`SELECT * FROM (SELECT market_snapshots.*, ROW_NUMBER() OVER (PARTITION BY chain_id, token_address ORDER BY ingested_at DESC, id DESC) AS rn FROM market_snapshots) WHERE rn = 1`.execute(this.db),
+      sql<Pick<SwingStudyTable, 'chain_id' | 'token_address' | 'result_json'> & { rn: number }>`SELECT chain_id, token_address, result_json, rn FROM (SELECT chain_id, token_address, result_json, ROW_NUMBER() OVER (PARTITION BY chain_id, token_address ORDER BY generated_at DESC, id DESC) AS rn FROM swing_studies) WHERE rn = 1`.execute(this.db),
+      sql<Pick<RouteAssessmentTable, 'chain_id' | 'token_address' | 'result_json'> & { rn: number }>`SELECT chain_id, token_address, result_json, rn FROM (SELECT chain_id, token_address, result_json, ROW_NUMBER() OVER (PARTITION BY chain_id, token_address ORDER BY assessed_at DESC, id DESC) AS rn FROM route_assessments) WHERE rn = 1`.execute(this.db)
+    ]);
+    const key = (chainId: number, address: string) => `${chainId}:${address}`;
+    const snapshots = new Map(snapshotResult.rows.map((row) => [key(row.chain_id, row.token_address), snapshotFromRow(row)]));
+    const studies = new Map(swingResult.rows.map((row) => [key(row.chain_id, row.token_address), JSON.parse(row.result_json) as SwingStudy]));
+    const routes = new Map(routeResult.rows.map((row) => [key(row.chain_id, row.token_address), JSON.parse(row.result_json) as RouteAssessment]));
+    let candidates = rows.map((row) => {
+      const enrichmentKey = key(row.chain_id, row.address);
+      const latestSnapshot = snapshots.get(enrichmentKey) ?? null;
+      const study = studies.get(enrichmentKey) ?? null;
+      const route = routes.get(enrichmentKey) ?? null;
       const preferred = study?.results.find((result) => result.threshold === 0.05 && result.horizon === '7d') ?? study?.results[0];
       return { ...candidateFromRow(row), latestSnapshot, swingScore: preferred?.suitability ?? null, routeState: route?.state ?? 'not_attempted' as const, routeRecoveryPct: route?.recoveryPct ?? null };
-    }));
+    });
     if (filters.assetType) candidates = candidates.filter((candidate) => candidate.assetType === filters.assetType);
     if (filters.minLiquidityUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.liquidityUsd ?? -1) >= filters.minLiquidityUsd!);
     if (filters.minVolumeUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.volume24hUsd ?? -1) >= filters.minVolumeUsd!);
