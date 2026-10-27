@@ -67,6 +67,12 @@ describe('API integration', () => {
     expect(response.json().paths['/api/v1/candidates']).toBeDefined();
   });
 
+  it('accepts table sort columns and rejects unknown ones', async () => {
+    database = openDatabase(':memory:'); app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=token&direction=asc' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=nope' })).statusCode).toBe(400);
+  });
+
   it('rate limits repeated requests', async () => {
     database = openDatabase(':memory:'); app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', LOG_LEVEL: 'silent' }), database);
     let response;

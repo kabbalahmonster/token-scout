@@ -58,7 +58,8 @@ function snapshotFromRow(row: any): MarketSnapshot {
     ingestedAt: row.ingested_at, source: row.source, fingerprint: row.fingerprint };
 }
 
-export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: 'score' | 'swing' | 'liquidity' | 'volume_liquidity' | 'age' | 'route_recovery' | 'updated'; direction?: 'asc' | 'desc' }
+export type CandidateSort = 'token' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
+export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 
 export class Repositories {
   constructor(readonly db: Kysely<DatabaseSchema>) {}
@@ -99,7 +100,9 @@ export class Repositories {
     if (filters.verdict) query = query.where('verdict', '=', filters.verdict);
     if (filters.minScore !== undefined) query = query.where('score', '>=', filters.minScore);
     if (filters.search) query = query.where((eb) => eb.or([eb('address', 'like', `%${filters.search}%`), eb('symbol', 'like', `%${filters.search}%`), eb('name', 'like', `%${filters.search}%`)]));
-    const rows = await query.orderBy('score', 'desc').limit(Math.min(filters.limit ?? 100, 500)).offset(filters.offset ?? 0).execute();
+    // Enrichment-backed sorts (liquidity, volume, route, flags, and swing) are
+    // computed below, so pagination must happen after filtering and sorting.
+    const rows = await query.orderBy('score', 'desc').execute();
     let candidates = await Promise.all(rows.map(async (row) => {
       const address = row.address as Address;
       const [latestSnapshot, study, route] = await Promise.all([this.latestSnapshot(row.chain_id, address), this.latestSwingStudy(row.chain_id, address), this.latestRouteAssessment(row.chain_id, address)]);
@@ -110,17 +113,31 @@ export class Repositories {
     if (filters.minVolumeUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.volume24hUsd ?? -1) >= filters.minVolumeUsd!);
     if (filters.routeState) candidates = candidates.filter((candidate) => candidate.routeState === filters.routeState);
     if (filters.riskFlag) candidates = candidates.filter((candidate) => candidate.flags.some((flag) => flag.code === filters.riskFlag && flag.state === 'detected'));
-    const value = (candidate: Candidate): number => {
-      if (filters.sort === 'swing') return candidate.swingScore ?? -Infinity;
-      if (filters.sort === 'liquidity') return Number(candidate.latestSnapshot?.liquidityUsd ?? -Infinity);
-      if (filters.sort === 'volume_liquidity') return Number(candidate.latestSnapshot?.volume24hUsd ?? 0) / Math.max(Number(candidate.latestSnapshot?.liquidityUsd ?? 0), 1);
-      if (filters.sort === 'age') return candidate.latestSnapshot?.pairCreatedAt ? Date.now() - Date.parse(candidate.latestSnapshot.pairCreatedAt) : -Infinity;
-      if (filters.sort === 'route_recovery') return candidate.routeRecoveryPct ?? -Infinity;
+    const value = (candidate: Candidate): number | string | null => {
+      if (filters.sort === 'token') return (candidate.symbol ?? candidate.name ?? candidate.address).toLocaleLowerCase();
+      if (filters.sort === 'verdict') return candidate.verdict;
+      if (filters.sort === 'state') return candidate.state;
+      if (filters.sort === 'swing') return candidate.swingScore ?? null;
+      if (filters.sort === 'liquidity') return candidate.latestSnapshot?.liquidityUsd === null || candidate.latestSnapshot?.liquidityUsd === undefined ? null : Number(candidate.latestSnapshot.liquidityUsd);
+      if (filters.sort === 'volume') return candidate.latestSnapshot?.volume24hUsd === null || candidate.latestSnapshot?.volume24hUsd === undefined ? null : Number(candidate.latestSnapshot.volume24hUsd);
+      if (filters.sort === 'volume_liquidity') return candidate.latestSnapshot?.volume24hUsd === null || candidate.latestSnapshot?.volume24hUsd === undefined || candidate.latestSnapshot.liquidityUsd === null || candidate.latestSnapshot.liquidityUsd === undefined ? null : Number(candidate.latestSnapshot.volume24hUsd) / Math.max(Number(candidate.latestSnapshot.liquidityUsd), 1);
+      if (filters.sort === 'age') return candidate.latestSnapshot?.pairCreatedAt ? Date.now() - Date.parse(candidate.latestSnapshot.pairCreatedAt) : null;
+      if (filters.sort === 'route') return candidate.routeState ?? 'not_attempted';
+      if (filters.sort === 'route_recovery') return candidate.routeRecoveryPct ?? null;
+      if (filters.sort === 'flags') return candidate.flags.filter((flag) => flag.state === 'detected').length;
       if (filters.sort === 'updated') return Date.parse(candidate.updatedAt);
-      return candidate.score ?? -Infinity;
+      return candidate.score ?? null;
     };
     const direction = filters.direction === 'asc' ? 1 : -1;
-    return candidates.sort((a, b) => (value(a) - value(b)) * direction);
+    const sorted = candidates.sort((a, b) => {
+      const left = value(a); const right = value(b);
+      if (left === right) return a.address.localeCompare(b.address);
+      if (left === null) return 1;
+      if (right === null) return -1;
+      return (typeof left === 'string' && typeof right === 'string' ? left.localeCompare(right) : Number(left) - Number(right)) * direction;
+    });
+    const offset = filters.offset ?? 0;
+    return sorted.slice(offset, offset + Math.min(filters.limit ?? 100, 500));
   }
 
   async upsertPair(input: { chainId: number; tokenAddress: Address; pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null }): Promise<void> {

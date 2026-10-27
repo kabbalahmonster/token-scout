@@ -9,6 +9,16 @@ test('operator console renders boundaries and discovery navigation', async ({ pa
   await expect(page.getByLabel('Token contract')).toBeVisible();
 });
 
+test('candidate headers request ascending and descending sorts', async ({ page }) => {
+  await page.goto('/');
+  const firstRequest = page.waitForRequest((request) => request.url().includes('/api/v1/candidates') && request.url().includes('sort=token') && request.url().includes('direction=asc'));
+  await page.getByRole('button', { name: /Token/ }).click();
+  await firstRequest;
+  const nextRequest = page.waitForRequest((request) => request.url().includes('/api/v1/candidates') && request.url().includes('sort=token') && request.url().includes('direction=desc'));
+  await page.getByRole('button', { name: /Token/ }).click();
+  await nextRequest;
+});
+
 test('upstream API throttling is visible instead of fabricating candidates', async ({ page }) => {
   await page.route('**/api/v1/candidates**', async (route) => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ message: 'Rate limit reached' }) }));
   await page.goto('/');

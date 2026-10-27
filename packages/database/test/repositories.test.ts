@@ -32,6 +32,17 @@ describe('repositories', () => {
     expect(await database.repositories.eventsAfter(tail)).toEqual([]);
   });
 
+  it('sorts candidates by table columns in either direction', async () => {
+    database = openDatabase(':memory:');
+    const alpha = '0x1111111111111111111111111111111111111111' as const;
+    const zulu = '0x2222222222222222222222222222222222222222' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address: zulu, symbol: 'ZULU' });
+    await database.repositories.upsertCandidate({ chainId: 4663, address: alpha, symbol: 'ALPHA' });
+    expect((await database.repositories.listCandidates({ sort: 'token', direction: 'asc' })).map((candidate) => candidate.symbol)).toEqual(['ALPHA', 'ZULU']);
+    expect((await database.repositories.listCandidates({ sort: 'token', direction: 'desc' })).map((candidate) => candidate.symbol)).toEqual(['ZULU', 'ALPHA']);
+    expect((await database.repositories.listCandidates({ sort: 'token', direction: 'asc', limit: 1 })).map((candidate) => candidate.symbol)).toEqual(['ALPHA']);
+  });
+
   it('allows a recurring dedupe key after completion without colliding', async () => {
     database = openDatabase(':memory:');
     expect(await database.repositories.enqueue('discover', 'same-window', {})).toBeTypeOf('string');
