@@ -59,7 +59,11 @@ export class AssessmentService {
         await this.repositories.upsertCandidate({ chainId: this.config.CHAIN_ID, address: lead.address });
         await this.repositories.upsertPair({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, pairAddress: lead.poolAddress, dex: lead.dex, url: null, quoteTokenAddress: lead.quoteTokenAddress, createdAt: lead.createdAt, liquidityUsd: lead.liquidityUsd });
         await this.repositories.insertSnapshot(lead.snapshot, lead.raw);
-        await this.repositories.enqueue('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
+        const candidate = await this.repositories.getCandidate(this.config.CHAIN_ID, lead.address);
+        if (candidate?.state === 'stale' && !candidate.assessmentError) {
+          await this.repositories.setCandidateState(this.config.CHAIN_ID, lead.address, candidate.watched ? 'watched' : candidate.score === null ? 'collecting_history' : 'assessed');
+        }
+        await this.repositories.enqueueScheduled('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
         accepted += 1;
       }
       // Keep DexScreener profiles as a secondary early-warning feed. They are
@@ -133,4 +137,14 @@ export function selectCanonicalMarketPair<T extends { pairAddress: Address; liqu
     if (overridden) return overridden;
   }
   return [...pairs].filter((pair) => pair.liquidityUsd !== null).sort((a, b) => new Decimal(b.liquidityUsd!).comparedTo(a.liquidityUsd!))[0] ?? pairs[0];
+}
+
+/**
+ * Watched candidates are expected to receive their dedicated fast poll. The
+ * broader discovery universe only receives a fresh indexed observation each
+ * discovery cycle, so applying the watched cadence to it would incorrectly
+ * label almost every otherwise healthy candidate stale between scans.
+ */
+export function staleAfterSeconds(watched: boolean, watchedPollSeconds: number, discoveryIntervalSeconds: number): number {
+  return 3 * (watched ? watchedPollSeconds : discoveryIntervalSeconds);
 }

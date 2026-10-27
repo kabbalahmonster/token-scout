@@ -187,7 +187,7 @@ navigation, plain-language explanations, and tooltips for every score/flag.
 
 - Poll configured discovery feeds by default every 15 minutes and retain source
   time, ingest time, raw source ID, and ingestion outcome.
-- Build the default universe from five pages of top pools plus two pages of new
+- Build the default universe from ten pages of top pools plus five pages of new
   pools. Intake requires configurable minimum liquidity, 24-hour volume, and
   transaction activity; below-threshold observations are retained as rejected
   leads so promising pools can qualify on a later poll.

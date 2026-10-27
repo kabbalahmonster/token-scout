@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from '@doomscout/config';
 import { openDatabase } from '@doomscout/database';
-import { AssessmentService } from './service.js';
+import { AssessmentService, staleAfterSeconds } from './service.js';
 
 const config = loadConfig();
 const database = openDatabase(config.DATABASE_PATH);
@@ -19,7 +19,11 @@ async function schedule(): Promise<void> {
   const watched = await database.repositories.listCandidates({ watched: true, limit: 500 });
   await Promise.all(watched.map((candidate) => database.repositories.enqueueScheduled('assess', `watch:${candidate.chainId}:${candidate.address}:${Math.floor(now / (config.WATCHED_POLL_SECONDS * 1000))}`, { chainId: candidate.chainId, address: candidate.address })));
   const assessed = await database.repositories.listCandidates({ limit: 500 });
-  await Promise.all(assessed.filter((candidate) => candidate.latestSnapshot && Date.now() - Date.parse(candidate.latestSnapshot.ingestedAt) > config.EXPECTED_POLL_SECONDS * 3000).map((candidate) => database.repositories.setCandidateState(candidate.chainId, candidate.address, 'stale')));
+  await Promise.all(assessed.filter((candidate) => {
+    if (!candidate.latestSnapshot) return false;
+    const staleAfterMs = staleAfterSeconds(candidate.watched, config.WATCHED_POLL_SECONDS, config.DISCOVERY_INTERVAL_SECONDS) * 1000;
+    return Date.now() - Date.parse(candidate.latestSnapshot.ingestedAt) > staleAfterMs;
+  }).map((candidate) => database.repositories.setCandidateState(candidate.chainId, candidate.address, 'stale')));
   await database.repositories.enqueueScheduled('retention', `retention:${new Date().toISOString().slice(0, 10)}`, {});
 }
 
