@@ -58,7 +58,7 @@ function snapshotFromRow(row: any): MarketSnapshot {
     ingestedAt: row.ingested_at, source: row.source, fingerprint: row.fingerprint };
 }
 
-export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
+export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'events_per_day' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
 export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; minPairAgeDays?: number; maxPairAgeDays?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 
 export class Repositories {
@@ -121,7 +121,7 @@ export class Repositories {
       const study = studies.get(enrichmentKey) ?? null;
       const route = routes.get(enrichmentKey) ?? null;
       const preferred = study?.results.find((result) => result.threshold === 0.05 && result.horizon === '7d') ?? study?.results[0];
-      return { ...candidateFromRow(row), latestSnapshot, swingScore: preferred?.suitability ?? null, routeState: route?.state ?? 'not_attempted' as const, routeRecoveryPct: route?.recoveryPct ?? null };
+      return { ...candidateFromRow(row), latestSnapshot, swingScore: preferred?.suitability ?? null, swingEventsPerDay: preferred?.eventsPerDay ?? null, routeState: route?.state ?? 'not_attempted' as const, routeRecoveryPct: route?.recoveryPct ?? null };
     });
     if (filters.assetType) candidates = candidates.filter((candidate) => candidate.assetType === filters.assetType);
     if (filters.minLiquidityUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.liquidityUsd ?? -1) >= filters.minLiquidityUsd!);
@@ -142,6 +142,7 @@ export class Repositories {
       if (filters.sort === 'verdict') return candidate.verdict;
       if (filters.sort === 'state') return candidate.state;
       if (filters.sort === 'swing') return candidate.swingScore ?? null;
+      if (filters.sort === 'events_per_day') return candidate.swingEventsPerDay ?? null;
       if (filters.sort === 'liquidity') return candidate.latestSnapshot?.liquidityUsd === null || candidate.latestSnapshot?.liquidityUsd === undefined ? null : Number(candidate.latestSnapshot.liquidityUsd);
       if (filters.sort === 'market_cap') return candidate.latestSnapshot?.marketCapUsd === null || candidate.latestSnapshot?.marketCapUsd === undefined ? null : Number(candidate.latestSnapshot.marketCapUsd);
       if (filters.sort === 'volume') return candidate.latestSnapshot?.volume24hUsd === null || candidate.latestSnapshot?.volume24hUsd === undefined ? null : Number(candidate.latestSnapshot.volume24hUsd);

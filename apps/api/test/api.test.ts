@@ -74,6 +74,7 @@ describe('API integration', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?minPairAgeDays=30&maxPairAgeDays=90' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?minPairAgeDays=-1' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=market_cap&direction=desc' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=events_per_day&direction=desc' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?assetType=crypto&sort=asset_type&direction=asc' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?assetType=equity' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=nope' })).statusCode).toBe(400);

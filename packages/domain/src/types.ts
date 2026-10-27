@@ -72,6 +72,7 @@ export interface Candidate {
   flags: RiskFlag[];
   latestSnapshot?: MarketSnapshot | null;
   swingScore?: number | null;
+  swingEventsPerDay?: number | null;
   routeState?: RouteState;
   routeRecoveryPct?: number | null;
   assessmentError?: { code: string; message: string; at: string } | null;
