@@ -1,0 +1,55 @@
+name: doomscout
+services:
+  api:
+    build: { context: ., target: api }
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      API_PORT: 3001
+      DATABASE_PATH: /data/doomscout.db
+      AUTH_TOKEN: ${AUTH_TOKEN:?Set a random AUTH_TOKEN of at least 32 characters}
+      PUBLIC_READ: ${PUBLIC_READ:-false}
+      ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
+      ROBINHOOD_BLOCKSCOUT_URL: ${ROBINHOOD_BLOCKSCOUT_URL:-https://robinhoodchain.blockscout.com}
+      DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}
+      COINGECKO_API_URL: ${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
+      SUSHI_QUOTE_URL: ${SUSHI_QUOTE_URL:-https://api.sushi.com/quote/v7/4663}
+      PLANNED_BUDGET_WEI: ${PLANNED_BUDGET_WEI:-100000000000000000}
+      POSITION_COUNT: ${POSITION_COUNT:-4}
+    volumes: [doomscout-data:/data]
+    expose: ["3001"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    security_opt: [no-new-privileges:true]
+  worker:
+    build: { context: ., target: worker }
+    restart: unless-stopped
+    depends_on: { api: { condition: service_healthy } }
+    environment:
+      NODE_ENV: production
+      HOST: 127.0.0.1
+      DATABASE_PATH: /data/doomscout.db
+      ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
+      ROBINHOOD_BLOCKSCOUT_URL: ${ROBINHOOD_BLOCKSCOUT_URL:-https://robinhoodchain.blockscout.com}
+      DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}
+      COINGECKO_API_URL: ${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
+      SUSHI_QUOTE_URL: ${SUSHI_QUOTE_URL:-https://api.sushi.com/quote/v7/4663}
+      DISCOVERY_INTERVAL_SECONDS: ${DISCOVERY_INTERVAL_SECONDS:-900}
+      WATCHED_POLL_SECONDS: ${WATCHED_POLL_SECONDS:-60}
+      PLANNED_BUDGET_WEI: ${PLANNED_BUDGET_WEI:-100000000000000000}
+      POSITION_COUNT: ${POSITION_COUNT:-4}
+    volumes: [doomscout-data:/data]
+    security_opt: [no-new-privileges:true]
+  web:
+    build: { context: ., target: web }
+    restart: unless-stopped
+    depends_on: { api: { condition: service_healthy } }
+    ports: ["127.0.0.1:${WEB_PORT:-8080}:80"]
+    security_opt: [no-new-privileges:true]
+volumes:
+  doomscout-data:

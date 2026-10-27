@@ -15,6 +15,57 @@ or a wallet-connected trading interface.
 > high score means a token passed documented checks at a point in time; it does
 > not mean it is safe, liquid forever, or likely to profit.
 
+## Implemented application
+
+The repository now contains the working TypeScript MVP described below:
+
+- React/Vite operator console with Scoutboard filters/presets, token details,
+  retained-history charts, swing ledger, score/risk/route explanations,
+  discovery import, watchlists, in-app alerts, operations, and exports;
+- Fastify REST/OpenAPI/SSE API with schema validation, rate limits, mutation
+  auth, redacted errors/logs, health/readiness, CSV/JSON history, and JSON/.env
+  recommendation drafts;
+- separate SQLite-backed worker with idempotent discovery, watched polling,
+  assessment, retention, and alert jobs;
+- credential-free DexScreener, Robinhood RPC, Blockscout, CoinGecko, and Sushi
+  adapters with source budgets, timeout/retry/cache/circuit state;
+- SQLite WAL evidence storage with immutable raw snapshots, 5-minute and hourly
+  aggregates, versioned studies/scans/scores, migrations, backup, and restore;
+- strict domain algorithms, fixture/unit/integration/E2E tests, Docker Compose,
+  CI, and loopback-first Hetzner deployment examples.
+
+Static findings remain deliberately conservative: transfer-tax and
+concentration state stays `unknown` when free evidence cannot establish it.
+That is correct behaviour, not a clean bill of health.
+
+### Quick start
+
+Node.js 22 and Corepack are required.
+
+```bash
+corepack enable
+cp .env.example .env
+pnpm install
+pnpm dev
+```
+
+Open <http://127.0.0.1:4173>; generated OpenAPI is at
+<http://127.0.0.1:3001/docs>. The local placeholder bearer token in
+`.env.example` is not a secret and **must be replaced** before a public/TLS
+deployment.
+
+```bash
+# production / VPS (still published on loopback by default)
+cp .env.example .env
+# Replace AUTH_TOKEN with: openssl rand -hex 32
+docker compose up -d --build
+```
+
+See [architecture](docs/ARCHITECTURE.md), [configuration](docs/CONFIGURATION.md),
+[sources](docs/DATA_SOURCES.md), [swing methodology](docs/SWING_ALGORITHM.md),
+[scoring](docs/SCORING.md), [API](docs/API.md), [threat model](docs/THREAT_MODEL.md),
+[operations](docs/OPERATIONS.md), and [development](docs/DEVELOPMENT.md).
+
 ## Goals
 
 1. Find new and existing Robinhood Chain tokens using free/public data only.

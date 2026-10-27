@@ -1,0 +1,19 @@
+{
+  "name": "@doomscout/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "tsx watch src/index.ts", "start": "node dist/index.js", "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": {
+    "@doomscout/config": "workspace:*",
+    "@doomscout/database": "workspace:*",
+    "@doomscout/domain": "workspace:*",
+    "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/swagger": "^9.5.2",
+    "@fastify/swagger-ui": "^5.2.3",
+    "fastify": "^5.6.1"
+  },
+  "devDependencies": { "tsx": "^4.20.6", "typescript": "^5.9.3" }
+}

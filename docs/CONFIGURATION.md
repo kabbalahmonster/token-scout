@@ -1,0 +1,19 @@
+# Configuration
+
+`.env.example` is the exhaustive safe template. Defaults target Robinhood Chain
+mainnet (4663), bind locally, use only credential-free providers, poll discovery
+every 15 minutes, and poll watched candidates each minute. Watched cadence is
+validated to 30–900 seconds.
+
+Amounts such as `PLANNED_BUDGET_WEI` are integer strings. Swing thresholds are
+fractions (`0.05` means 5%). Endpoint URLs may contain credentials for a user's
+optional provider but are redacted from startup logs; free public defaults are
+always sufficient for core operation.
+
+Production non-local API binding fails closed unless `AUTH_TOKEN` is at least
+32 characters. Prefer a loopback bind or private Compose network even with TLS.
+Compose publishes only the web proxy on loopback and defaults `PUBLIC_READ=false`.
+Enter the bearer token in the persistent top-bar control (or Operations) to
+unlock reads and mutations; direct API exposure is never required.
+`/api/v1/health` and `/api/v1/ready` are always unauthenticated and contain no
+research records.

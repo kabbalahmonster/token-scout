@@ -1,0 +1,34 @@
+{
+  "name": "doomscout",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.18.3",
+  "engines": { "node": ">=22 <27" },
+  "scripts": {
+    "dev": "concurrently -n api,worker,web -c blue,magenta,cyan \"corepack pnpm --filter @doomscout/api dev\" \"corepack pnpm --filter @doomscout/worker dev\" \"corepack pnpm --filter @doomscout/web dev\"",
+    "build": "corepack pnpm -r --if-present build",
+    "typecheck": "corepack pnpm build && corepack pnpm -r --if-present typecheck",
+    "lint": "corepack pnpm -r --filter './packages/**' --if-present build && eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "db:migrate": "corepack pnpm --filter @doomscout/database migrate",
+    "db:backup": "tsx scripts/backup.ts",
+    "db:restore": "tsx scripts/restore.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^22.18.12",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.4.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.38.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.4.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vitest": "^3.2.4"
+  }
+}

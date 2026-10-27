@@ -1,0 +1,13 @@
+{
+  "name": "@doomscout/domain",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": { "decimal.js": "^10.6.0", "zod": "^4.1.12" },
+  "devDependencies": { "typescript": "^5.9.3" }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@doomscout/database",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && mkdir -p dist/migrations && cp src/migrations/*.sql dist/migrations/",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "tsx src/cli.ts migrate"
+  },
+  "dependencies": {
+    "@doomscout/domain": "workspace:*",
+    "better-sqlite3": "^12.4.1",
+    "decimal.js": "^10.6.0",
+    "kysely": "^0.28.8"
+  },
+  "devDependencies": { "@types/better-sqlite3": "^7.6.13", "tsx": "^4.20.6", "typescript": "^5.9.3" }
+}

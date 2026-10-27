@@ -1,0 +1,37 @@
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import type { Candidate } from '@doomscout/domain';
+import { client } from '../api.js';
+import { Age, Money, StateBadge, VerdictBadge } from '../components/Status.js';
+
+const column = createColumnHelper<Candidate>();
+export function Scoutboard() {
+  const [search, setSearch] = useState(''); const [verdict, setVerdict] = useState(''); const [minScore, setMinScore] = useState(''); const [routeState, setRouteState] = useState(''); const [sort, setSort] = useState('score'); const [presetName, setPresetName] = useState('');
+  const [presets, setPresets] = useState<Array<{ name: string; search: string; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; verdict: string; minScore: string }>; } catch { return []; } });
+  const params = new URLSearchParams(); if (search) params.set('search', search); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState); params.set('sort', sort);
+  const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), refetchInterval: 15_000 });
+  const columns = useMemo(() => [
+    column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => <Link className="token" to={`/tokens/${row.original.chainId}/${row.original.address}`}><strong>{row.original.symbol ?? 'UNKNOWN'}</strong><span>{row.original.name ?? `${row.original.address.slice(0, 8)}…${row.original.address.slice(-5)}`}</span></Link> }),
+    column.accessor('score', { header: 'Score', cell: ({ row }) => <div className="score"><strong>{row.original.score ?? '—'}</strong><span>{row.original.confidence}% confidence</span></div> }),
+    column.accessor('verdict', { header: 'Verdict', cell: (info) => <VerdictBadge verdict={info.getValue()}/> }),
+    column.accessor('state', { header: 'Lifecycle', cell: (info) => <StateBadge state={info.getValue()}/> }),
+    column.accessor((row) => row.latestSnapshot?.liquidityUsd, { id: 'liquidity', header: 'Liquidity', cell: (info) => <Money value={info.getValue()}/> }),
+    column.accessor((row) => row.latestSnapshot?.volume24hUsd, { id: 'volume', header: '24h volume', cell: (info) => <Money value={info.getValue()}/> }),
+    column.accessor((row) => row.latestSnapshot?.pairCreatedAt, { id: 'age', header: 'Pair age', cell: (info) => <Age date={info.getValue()}/> }),
+    column.accessor('swingScore', { header: 'Swing', cell: (info) => info.getValue() === null || info.getValue() === undefined ? <span className="unknown">collecting</span> : `${info.getValue()!.toFixed(0)}/100` }),
+    column.accessor('routeState', { header: 'Route', cell: (info) => <StateBadge state={info.getValue() ?? 'not_attempted'}/> }),
+    column.display({ id: 'flags', header: 'Flags', cell: ({ row }) => { const flags = row.original.flags.filter((flag) => flag.state === 'detected'); return <span className={flags.length ? 'flag-count' : 'muted'}>{flags.length ? <><AlertTriangle size={14}/>{flags.length}</> : 'none detected*'}</span>; } }),
+    column.display({ id: 'go', cell: ({ row }) => <Link aria-label={`Open ${row.original.symbol ?? row.original.address}`} to={`/tokens/${row.original.chainId}/${row.original.address}`}><ChevronRight size={17}/></Link> })
+  ], []);
+  const table = useReactTable({ data: query.data?.data ?? [], columns, getCoreRowModel: getCoreRowModel() });
+  return <section className="page">
+    <div className="pagehead"><div><p className="eyebrow">Candidate intelligence</p><h1>Scoutboard</h1><p>Ranked for grid/gridless suitability—not hype, safety, or predicted profit.</p></div><div className="stat"><strong>{query.data?.data.length ?? 0}</strong><span>visible candidates</span></div></div>
+    <div className="filters"><SlidersHorizontal size={16}/><input aria-label="Search candidates" placeholder="Symbol, name, or address" value={search} onChange={(event) => setSearch(event.target.value)}/><select aria-label="Verdict" value={verdict} onChange={(event) => setVerdict(event.target.value)}><option value="">Any verdict</option><option>PASS</option><option>CAUTION</option><option>REJECT</option><option>UNASSESSED</option></select><select aria-label="Route state" value={routeState} onChange={(event) => setRouteState(event.target.value)}><option value="">Any route</option><option value="available">Available</option><option value="not_configured">Not configured</option><option value="no_route_or_liquidity">No route</option><option value="quote_failed">Failed</option><option value="timed_out">Timed out</option><option value="stale">Stale</option></select><select aria-label="Sort candidates" value={sort} onChange={(event) => setSort(event.target.value)}><option value="score">Composite score</option><option value="swing">Swing score</option><option value="liquidity">Liquidity</option><option value="volume_liquidity">Volume / liquidity</option><option value="age">Pair age</option><option value="route_recovery">Route recovery</option><option value="updated">Latest update</option></select><input className="small" aria-label="Minimum score" type="number" min="0" max="100" placeholder="Min score" value={minScore} onChange={(event) => setMinScore(event.target.value)}/><select aria-label="Saved filter preset" onChange={(event) => { const preset = presets.find((item) => item.name === event.target.value); if (preset) { setSearch(preset.search); setVerdict(preset.verdict); setMinScore(preset.minScore); } }}><option value="">Load preset</option>{presets.map((preset) => <option key={preset.name}>{preset.name}</option>)}</select><input className="small" aria-label="Preset name" placeholder="Preset name" value={presetName} onChange={(event) => setPresetName(event.target.value)}/><button type="button" onClick={() => { if (!presetName.trim()) return; const next = [...presets.filter((item) => item.name !== presetName.trim()), { name: presetName.trim(), search, verdict, minScore }]; setPresets(next); localStorage.setItem('doomscout.filterPresets', JSON.stringify(next)); setPresetName(''); }}>Save</button></div>
+    {query.isError ? <div className="notice error">Could not load candidates: {query.error.message}</div> : null}
+    <div className="tablewrap"><table><thead>{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th key={header.id}>{flexRender(header.column.columnDef.header, header.getContext())}</th>)}</tr>)}</thead><tbody>{query.isLoading ? <tr><td colSpan={11}>Loading retained evidence…</td></tr> : table.getRowModel().rows.length ? table.getRowModel().rows.map((row) => <tr key={row.id}>{row.getVisibleCells().map((cell) => <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>) : <tr><td colSpan={11}><div className="empty"><strong>No candidates yet.</strong><span>Import a contract address or wait for discovery.</span><Link to="/discovery">Open discovery</Link></div></td></tr>}</tbody></table></div>
+    <p className="footnote">* Static analysis is not an audit. “None detected” never means safe.</p>
+  </section>;
+}
