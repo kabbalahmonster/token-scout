@@ -5,6 +5,16 @@ const options = { timeoutMs: 1000, retries: 0, cacheTtlMs: 1, requestsPerMinute:
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
 
 describe('adapter fixtures', () => {
+  it('merges DexScreener latest profiles and top boosted discovery without duplicates', async () => {
+    const address = '0x1111111111111111111111111111111111111111';
+    const requestedUrls: string[] = [];
+    const fetcher = vi.fn((url: unknown) => { requestedUrls.push(String(url)); return response([{ chainId: 'robinhood', tokenAddress: address }]); }) as unknown as typeof fetch;
+    const result = await new DexScreenerAdapter('https://fixture.test', options, fetcher, 'robinhood', 100_000).discover();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ address, source: 'dexscreener_top_boost' });
+    expect(requestedUrls).toEqual(['https://fixture.test/token-profiles/latest/v1', 'https://fixture.test/token-boosts/top/v1']);
+  });
+
   it('normalizes DexScreener pairs without inventing missing values', async () => {
     const fetcher = vi.fn(() => response([{ chainId: 'robinhood', dexId: 'fixture', pairAddress: '0x2222222222222222222222222222222222222222', baseToken: { address: '0x1111111111111111111111111111111111111111', symbol: 'FOX', name: 'Fox' }, quoteToken: { address: '0x3333333333333333333333333333333333333333' }, priceNative: '0.1', liquidity: { usd: 5000 } }])) as unknown as typeof fetch;
     const adapter = new DexScreenerAdapter('https://fixture.test', options, fetcher);
@@ -21,11 +31,18 @@ describe('adapter fixtures', () => {
     expect(result.pairs).toHaveLength(0);
   });
 
-  it('normalizes and deduplicates GeckoTerminal top/new pool discovery', async () => {
+  it('normalizes and deduplicates GeckoTerminal top/new/trending pool discovery', async () => {
     const pool = { id: 'robinhood_0x2222222222222222222222222222222222222222', attributes: { address: '0x2222222222222222222222222222222222222222', pool_created_at: '2026-10-01T00:00:00Z', base_token_price_usd: '0.01', base_token_price_native_currency: '0.00001', reserve_in_usd: '25000', volume_usd: { h24: '5000' }, transactions: { h24: { buys: 12, sells: 8 } } }, relationships: { base_token: { data: { id: 'robinhood_0x1111111111111111111111111111111111111111' } }, quote_token: { data: { id: 'robinhood_0x3333333333333333333333333333333333333333' } }, dex: { data: { id: 'fixture-dex' } } } };
-    const fetcher = vi.fn(() => response({ data: [pool] })) as unknown as typeof fetch;
-    const leads = await new GeckoTerminalAdapter('https://fixture.test', options, fetcher).discover(1, 1);
+    const requestedUrls: string[] = [];
+    const fetcher = vi.fn((url: unknown) => { requestedUrls.push(String(url)); return response({ data: [pool] }); }) as unknown as typeof fetch;
+    const leads = await new GeckoTerminalAdapter('https://fixture.test', options, fetcher, 'robinhood', 100_000).discover(1, 1, 1);
     expect(leads).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(requestedUrls).toEqual([
+      'https://fixture.test/networks/robinhood/pools?page=1',
+      'https://fixture.test/networks/robinhood/new_pools?page=1',
+      'https://fixture.test/networks/robinhood/trending_pools?page=1'
+    ]);
     expect(leads[0]).toMatchObject({ address: '0x1111111111111111111111111111111111111111', poolAddress: '0x2222222222222222222222222222222222222222', liquidityUsd: '25000', volume24hUsd: '5000', buys24h: 12, sells24h: 8 });
     expect(leads[0]?.snapshot.source).toBe('geckoterminal');
   });

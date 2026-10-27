@@ -49,13 +49,13 @@ export interface GeckoDiscoveryLead {
 export class GeckoTerminalAdapter {
   private readonly client: ResilientHttpClient;
 
-  constructor(private readonly baseUrl: string, options: ResilienceOptions, fetchImpl?: FetchLike, private readonly network = 'robinhood') {
+  constructor(private readonly baseUrl: string, options: ResilienceOptions, fetchImpl?: FetchLike, private readonly network = 'robinhood', requestsPerMinuteOverride?: number) {
     // GeckoTerminal's key-free budget is roughly 30 rpm. Stay below it and
     // share one queue across discovery and candle backfills.
     // Although the published key-free ceiling is higher, shared-IP deployments
     // can receive 429s below it. Six rpm leaves room for other tools on the VPS
     // and makes discovery/backfill slow-but-boring instead of bursty.
-    this.client = new ResilientHttpClient('geckoterminal', { ...options, requestsPerMinute: Math.min(6, options.requestsPerMinute), cacheTtlMs: Math.max(options.cacheTtlMs, 60_000) }, fetchImpl);
+    this.client = new ResilientHttpClient('geckoterminal', { ...options, requestsPerMinute: requestsPerMinuteOverride ?? Math.min(6, options.requestsPerMinute), cacheTtlMs: Math.max(options.cacheTtlMs, 60_000) }, fetchImpl);
   }
 
   status() { return this.client.status(); }
@@ -97,9 +97,13 @@ export class GeckoTerminalAdapter {
     } catch { return null; }
   }
 
-  async discover(topPages: number, newPages: number): Promise<GeckoDiscoveryLead[]> {
+  async discover(topPages: number, newPages: number, trendingPages = 0): Promise<GeckoDiscoveryLead[]> {
     const leads: GeckoDiscoveryLead[] = [];
-    const feeds: Array<{ path: 'pools' | 'new_pools'; pages: number }> = [{ path: 'pools', pages: topPages }, { path: 'new_pools', pages: newPages }];
+    const feeds: Array<{ path: 'pools' | 'new_pools' | 'trending_pools'; pages: number }> = [
+      { path: 'pools', pages: topPages },
+      { path: 'new_pools', pages: newPages },
+      ...(trendingPages > 0 ? [{ path: 'trending_pools' as const, pages: trendingPages }] : [])
+    ];
     for (const feed of feeds) {
       for (let page = 1; page <= feed.pages; page += 1) {
         try {

@@ -16,9 +16,9 @@ function log(level: 'info' | 'warn' | 'error', event: string, detail: Record<str
 async function schedule(): Promise<void> {
   const now = Date.now();
   await database.repositories.enqueueScheduled('discover', `discovery:${Math.floor(now / (config.DISCOVERY_INTERVAL_SECONDS * 1000))}`, {});
-  const watched = await database.repositories.listCandidates({ watched: true, limit: 500 });
+  const watched = await database.repositories.listCandidates({ watched: true, limit: 2000 });
   await Promise.all(watched.map((candidate) => database.repositories.enqueueScheduled('assess', `watch:${candidate.chainId}:${candidate.address}:${Math.floor(now / (config.WATCHED_POLL_SECONDS * 1000))}`, { chainId: candidate.chainId, address: candidate.address })));
-  const assessed = await database.repositories.listCandidates({ limit: 500 });
+  const assessed = await database.repositories.listCandidates({ limit: 2000 });
   await Promise.all(assessed.filter((candidate) => {
     if (!candidate.latestSnapshot) return false;
     const staleAfterMs = staleAfterSeconds(candidate.watched, config.WATCHED_POLL_SECONDS, config.DISCOVERY_INTERVAL_SECONDS) * 1000;

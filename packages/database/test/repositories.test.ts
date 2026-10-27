@@ -55,6 +55,18 @@ describe('repositories', () => {
     expect((await database.repositories.listCandidates({ sort: 'asset_type', direction: 'asc' })).map((candidate) => candidate.assetType)).toEqual(['crypto', 'stablecoin', 'tokenized_stock']);
   });
 
+  it('filters candidate markets by observed pair age', async () => {
+    database = openDatabase(':memory:');
+    const established = '0x1111111111111111111111111111111111111111' as const;
+    const newLaunch = '0x2222222222222222222222222222222222222222' as const;
+    for (const [address, ageDays] of [[established, 60], [newLaunch, 2]] as const) {
+      await database.repositories.upsertCandidate({ chainId: 4663, address });
+      await database.repositories.insertSnapshot({ chainId: 4663, tokenAddress: address, pairAddress: null, dex: 'fixture', priceNative: null, priceUsd: '1', liquidityUsd: '100000', fdvUsd: null, marketCapUsd: null, volume5mUsd: null, volume1hUsd: null, volume6hUsd: null, volume24hUsd: '10000', buys24h: 10, sells24h: 10, pairCreatedAt: new Date(Date.now() - ageDays * 86_400_000).toISOString(), sourceTime: null, ingestedAt: new Date().toISOString(), source: 'fixture', fingerprint: `age-${ageDays}` });
+    }
+    expect((await database.repositories.listCandidates({ minPairAgeDays: 30 })).map((candidate) => candidate.address)).toEqual([established]);
+    expect((await database.repositories.listCandidates({ maxPairAgeDays: 7 })).map((candidate) => candidate.address)).toEqual([newLaunch]);
+  });
+
   it('allows a recurring dedupe key after completion without colliding', async () => {
     database = openDatabase(':memory:');
     expect(await database.repositories.enqueue('discover', 'same-window', {})).toBeTypeOf('string');

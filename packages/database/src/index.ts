@@ -59,7 +59,7 @@ function snapshotFromRow(row: any): MarketSnapshot {
 }
 
 export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
-export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
+export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; minPairAgeDays?: number; maxPairAgeDays?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 
 export class Repositories {
   constructor(readonly db: Kysely<DatabaseSchema>) {}
@@ -112,6 +112,14 @@ export class Repositories {
     if (filters.assetType) candidates = candidates.filter((candidate) => candidate.assetType === filters.assetType);
     if (filters.minLiquidityUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.liquidityUsd ?? -1) >= filters.minLiquidityUsd!);
     if (filters.minVolumeUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.volume24hUsd ?? -1) >= filters.minVolumeUsd!);
+    if (filters.minPairAgeDays !== undefined) candidates = candidates.filter((candidate) => {
+      const createdAt = candidate.latestSnapshot?.pairCreatedAt;
+      return createdAt ? Date.now() - Date.parse(createdAt) >= filters.minPairAgeDays! * 86_400_000 : false;
+    });
+    if (filters.maxPairAgeDays !== undefined) candidates = candidates.filter((candidate) => {
+      const createdAt = candidate.latestSnapshot?.pairCreatedAt;
+      return createdAt ? Date.now() - Date.parse(createdAt) < filters.maxPairAgeDays! * 86_400_000 : false;
+    });
     if (filters.routeState) candidates = candidates.filter((candidate) => candidate.routeState === filters.routeState);
     if (filters.riskFlag) candidates = candidates.filter((candidate) => candidate.flags.some((flag) => flag.code === filters.riskFlag && flag.state === 'detected'));
     const value = (candidate: Candidate): number | string | null => {
@@ -140,7 +148,7 @@ export class Repositories {
       return (typeof left === 'string' && typeof right === 'string' ? left.localeCompare(right) : Number(left) - Number(right)) * direction;
     });
     const offset = filters.offset ?? 0;
-    return sorted.slice(offset, offset + Math.min(filters.limit ?? 100, 500));
+    return sorted.slice(offset, offset + Math.min(filters.limit ?? 100, 2000));
   }
 
   async upsertPair(input: { chainId: number; tokenAddress: Address; pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null }): Promise<void> {

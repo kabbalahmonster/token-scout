@@ -30,13 +30,13 @@ export class AssessmentService {
   async discover(): Promise<number> {
     try {
       const [geckoResult, profileResult] = await Promise.allSettled([
-        this.geckoTerminal.discover(this.config.DISCOVERY_TOP_PAGES, this.config.DISCOVERY_NEW_PAGES),
+        this.geckoTerminal.discover(this.config.DISCOVERY_TOP_PAGES, this.config.DISCOVERY_NEW_PAGES, this.config.DISCOVERY_TRENDING_PAGES),
         this.dex.discover()
       ]);
       const geckoLeads = geckoResult.status === 'fulfilled' ? geckoResult.value : [];
       const profileLeads = profileResult.status === 'fulfilled' ? profileResult.value : [];
       if (geckoResult.status === 'rejected') await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: null, source: 'geckoterminal', sourceId: null, sourceTime: null, outcome: 'provider_error', errorCode: geckoResult.reason instanceof Error ? geckoResult.reason.name : 'UNKNOWN' });
-      if (profileResult.status === 'rejected') await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: null, source: 'dexscreener_profiles', sourceId: null, sourceTime: null, outcome: 'provider_error', errorCode: profileResult.reason instanceof Error ? profileResult.reason.name : 'UNKNOWN' });
+      if (profileResult.status === 'rejected') await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: null, source: 'dexscreener_discovery', sourceId: null, sourceTime: null, outcome: 'provider_error', errorCode: profileResult.reason instanceof Error ? profileResult.reason.name : 'UNKNOWN' });
 
       // One candidate can appear in several pools/feeds. Prefer its deepest
       // indexed pool as the initial evidence and let assessment retain all
@@ -66,12 +66,13 @@ export class AssessmentService {
         await this.repositories.enqueueScheduled('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
         accepted += 1;
       }
-      // Keep DexScreener profiles as a secondary early-warning feed. They are
-      // queued for validation but do not bypass the market-activity criteria
+      // Keep DexScreener profiles and top boosts as secondary discovery feeds.
+      // Boosts are promotional signals, not quality evidence. Neither feed
+      // bypasses the market-activity criteria
       // for the ranked universe unless GeckoTerminal also observes a pool.
       const acceptedAddresses = new Set([...preferred.values()].map((lead) => lead.address));
       for (const lead of profileLeads.filter((item) => !acceptedAddresses.has(item.address))) {
-        await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, source: 'dexscreener_profiles', sourceId: lead.sourceId, sourceTime: lead.sourceTime, outcome: 'lead_only' });
+        await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, source: lead.source, sourceId: lead.sourceId, sourceTime: lead.sourceTime, outcome: 'lead_only' });
       }
       return accepted;
     } finally { await this.persistStatuses(); }

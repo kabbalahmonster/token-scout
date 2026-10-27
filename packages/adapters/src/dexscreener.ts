@@ -13,25 +13,28 @@ interface DexPair {
   txns?: { h24?: { buys?: number; sells?: number } }; pairCreatedAt?: number;
 }
 
-export interface DiscoveryLead { address: Address; sourceId: string; sourceTime: string | null }
+export interface DiscoveryLead { address: Address; source: 'dexscreener_profile' | 'dexscreener_top_boost'; sourceId: string; sourceTime: string | null }
 export interface DexTokenResult { token: { address: Address; symbol: string | null; name: string | null }; pairs: Array<{ pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null; snapshot: Omit<MarketSnapshot, 'id'>; raw: unknown }> }
 
 export class DexScreenerAdapter {
   private readonly profilesClient: ResilientHttpClient;
   private readonly pairsClient: ResilientHttpClient;
-  constructor(private readonly baseUrl: string, options: ResilienceOptions, fetchImpl?: FetchLike, private readonly chainSlug = 'robinhood') {
+  constructor(private readonly baseUrl: string, options: ResilienceOptions, fetchImpl?: FetchLike, private readonly chainSlug = 'robinhood', requestsPerMinuteOverride?: number) {
     // Official public budgets are 60 rpm for profiles and 300 rpm for pairs; stay below them.
-    this.profilesClient = new ResilientHttpClient('dexscreener_profiles', { ...options, requestsPerMinute: Math.min(50, options.requestsPerMinute) }, fetchImpl);
+    this.profilesClient = new ResilientHttpClient('dexscreener_discovery', { ...options, requestsPerMinute: requestsPerMinuteOverride ?? Math.min(50, options.requestsPerMinute) }, fetchImpl);
     this.pairsClient = new ResilientHttpClient('dexscreener_pairs', { ...options, requestsPerMinute: Math.min(240, Math.max(options.requestsPerMinute, 60)) }, fetchImpl);
   }
   statuses() { return [this.profilesClient.status(), this.pairsClient.status()]; }
 
   async discover(): Promise<DiscoveryLead[]> {
-    const profiles = await this.profilesClient.json<TokenProfile[]>(`${this.baseUrl}/token-profiles/latest/v1`);
-    if (!Array.isArray(profiles)) return [];
-    return profiles.filter((profile) => profile.chainId === this.chainSlug && profile.tokenAddress).flatMap((profile) => {
-      try { const address = normalizeAddress(profile.tokenAddress!); return [{ address, sourceId: profile.url ?? address, sourceTime: null }]; } catch { return []; }
-    });
+    const feeds = await Promise.all([
+      this.profilesClient.json<TokenProfile[]>(`${this.baseUrl}/token-profiles/latest/v1`).then((items) => ({ source: 'dexscreener_profile' as const, items })),
+      this.profilesClient.json<TokenProfile[]>(`${this.baseUrl}/token-boosts/top/v1`).then((items) => ({ source: 'dexscreener_top_boost' as const, items }))
+    ]);
+    const leads = feeds.flatMap(({ source, items }) => !Array.isArray(items) ? [] : items.filter((item) => item.chainId === this.chainSlug && item.tokenAddress).flatMap((item) => {
+      try { const address = normalizeAddress(item.tokenAddress!); return [{ address, source, sourceId: item.url ?? address, sourceTime: null }]; } catch { return []; }
+    }));
+    return [...new Map(leads.map((lead) => [lead.address, lead])).values()];
   }
 
   async token(chainId: number, address: Address): Promise<DexTokenResult> {

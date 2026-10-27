@@ -61,7 +61,7 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
   app.get('/api/v1/health', { schema: { tags: ['health'], response: { 200: { type: 'object', properties: { status: { type: 'string' }, database: { type: 'boolean' }, time: { type: 'string' } } } } } }, async () => ({ status: 'ok', database: await database.repositories.healthy(), time: new Date().toISOString() }));
   app.get('/api/v1/ready', { schema: { tags: ['health'] } }, async (_request, reply) => (await database.repositories.healthy()) ? { status: 'ready' } : reply.code(503).send({ status: 'not_ready' }));
 
-  app.get('/api/v1/candidates', { schema: { tags: ['candidates'], querystring: { type: 'object', properties: { state: { type: 'string' }, watched: { type: 'boolean' }, verdict: { type: 'string' }, assetType: { enum: ['crypto', 'tokenized_stock', 'stablecoin'] }, minScore: { type: 'number' }, minLiquidityUsd: { type: 'number' }, minVolumeUsd: { type: 'number' }, routeState: { type: 'string' }, riskFlag: { type: 'string', maxLength: 80 }, search: { type: 'string', maxLength: 100 }, limit: { type: 'integer', minimum: 1, maximum: 500 }, offset: { type: 'integer', minimum: 0 }, sort: { enum: ['token', 'asset_type', 'score', 'verdict', 'state', 'swing', 'liquidity', 'market_cap', 'volume', 'volume_liquidity', 'age', 'route', 'route_recovery', 'flags', 'updated'] }, direction: { enum: ['asc', 'desc'] } } } } }, async (request) => {
+  app.get('/api/v1/candidates', { schema: { tags: ['candidates'], querystring: { type: 'object', properties: { state: { type: 'string' }, watched: { type: 'boolean' }, verdict: { type: 'string' }, assetType: { enum: ['crypto', 'tokenized_stock', 'stablecoin'] }, minScore: { type: 'number' }, minLiquidityUsd: { type: 'number' }, minVolumeUsd: { type: 'number' }, minPairAgeDays: { type: 'number', minimum: 0 }, maxPairAgeDays: { type: 'number', minimum: 0 }, routeState: { type: 'string' }, riskFlag: { type: 'string', maxLength: 80 }, search: { type: 'string', maxLength: 100 }, limit: { type: 'integer', minimum: 1, maximum: 2000 }, offset: { type: 'integer', minimum: 0 }, sort: { enum: ['token', 'asset_type', 'score', 'verdict', 'state', 'swing', 'liquidity', 'market_cap', 'volume', 'volume_liquidity', 'age', 'route', 'route_recovery', 'flags', 'updated'] }, direction: { enum: ['asc', 'desc'] } } } } }, async (request) => {
     const query = request.query as any;
     return { data: await database.repositories.listCandidates({
       ...(query.state ? { state: query.state as CandidateState } : {}),
@@ -71,6 +71,8 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
       ...(query.minScore === undefined ? {} : { minScore: Number(query.minScore) }),
       ...(query.minLiquidityUsd === undefined ? {} : { minLiquidityUsd: Number(query.minLiquidityUsd) }),
       ...(query.minVolumeUsd === undefined ? {} : { minVolumeUsd: Number(query.minVolumeUsd) }),
+      ...(query.minPairAgeDays === undefined ? {} : { minPairAgeDays: Number(query.minPairAgeDays) }),
+      ...(query.maxPairAgeDays === undefined ? {} : { maxPairAgeDays: Number(query.maxPairAgeDays) }),
       ...(query.routeState ? { routeState: String(query.routeState) } : {}),
       ...(query.riskFlag ? { riskFlag: String(query.riskFlag) } : {}),
       ...(query.search ? { search: String(query.search) } : {}),
