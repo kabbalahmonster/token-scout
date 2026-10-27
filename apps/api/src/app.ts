@@ -35,13 +35,15 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
   await app.register(swagger, { openapi: { info: { title: 'DoomScout API', version: '0.1.0', description: 'Read-only token research API. Mutation endpoints enqueue research work; no route signs or broadcasts transactions.' }, servers: [{ url: '/'}], tags: [{ name: 'health' }, { name: 'candidates' }, { name: 'watchlists' }, { name: 'operations' }] } });
   await app.register(swaggerUi, { routePrefix: '/docs' });
 
-  const isLocalBind = config.HOST === '127.0.0.1' || config.HOST === 'localhost';
   app.addHook('onRequest', async (request, reply) => {
     // Liveness/readiness must remain callable by container orchestrators even
     // when every other read is private. They expose no candidate evidence.
     if (request.url === '/api/v1/health' || request.url === '/api/v1/ready') return;
     const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
-    const needsAuth = (isWrite && !isLocalBind) || (!isWrite && !isLocalBind && !config.PUBLIC_READ);
+    // A loopback bind is not an authentication boundary: a reverse proxy can
+    // still make it internet-facing. Production always supplies a token, and
+    // every mutation requires it regardless of the socket bind address.
+    const needsAuth = Boolean(config.AUTH_TOKEN) && (isWrite || !config.PUBLIC_READ);
     if (needsAuth && !authorized(request.headers.authorization, config.AUTH_TOKEN)) return reply.code(401).send({ error: 'unauthorized', message: 'A valid bearer token is required.' });
   });
 

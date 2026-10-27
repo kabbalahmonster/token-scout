@@ -47,8 +47,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     const issues = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
     throw new Error(`Invalid DoomScout configuration: ${issues}`);
   }
-  if (result.data.NODE_ENV === 'production' && result.data.HOST !== '127.0.0.1' && result.data.HOST !== 'localhost' && result.data.AUTH_TOKEN.length < 32) {
-    throw new Error('AUTH_TOKEN must contain at least 32 characters before binding production to a non-local interface');
+  if (result.data.NODE_ENV === 'production' && result.data.AUTH_TOKEN.length < 32) {
+    throw new Error('AUTH_TOKEN must contain at least 32 characters in production');
   }
   return result.data;
 }

@@ -26,8 +26,9 @@ Point the example Caddy config at `127.0.0.1:8080`. Allow inbound 22, 80, and
 443 only; do not expose 3001 or the SQLite volume. `PUBLIC_READ=false` is the
 safe default. Enter the bearer token in the console's top bar; it is retained
 only in that browser's local storage. Set `PUBLIC_READ=true` only when public
-research records are intentional. Mutations always require the token on a
-non-local API bind. Health and readiness remain unauthenticated for orchestration.
+research records are intentional. Production mutations always require the
+token, including behind a loopback reverse proxy. Health and readiness remain
+unauthenticated for orchestration.
 
 ## Upgrade and rollback
 

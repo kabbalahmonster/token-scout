@@ -43,6 +43,14 @@ describe('API integration', () => {
     expect((await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', payload: { address: '0x1111111111111111111111111111111111111111' } })).statusCode).toBe(401);
   });
 
+  it('protects mutations when production is published through a loopback reverse proxy', async () => {
+    database = openDatabase(':memory:');
+    app = await buildApp(loadConfig({ NODE_ENV: 'production', HOST: '127.0.0.1', AUTH_TOKEN: 'x'.repeat(32), PUBLIC_READ: 'true', DATABASE_PATH: ':memory:' }), database);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', payload: { address: '0x1111111111111111111111111111111111111111' } })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', headers: { authorization: `Bearer ${'x'.repeat(32)}` }, payload: { address: '0x1111111111111111111111111111111111111111' } })).statusCode).toBe(202);
+  });
+
   it('rejects unsupported-chain imports before creating candidates or jobs', async () => {
     database = openDatabase(':memory:');
     app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
