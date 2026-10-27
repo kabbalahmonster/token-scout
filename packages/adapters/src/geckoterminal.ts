@@ -52,7 +52,10 @@ export class GeckoTerminalAdapter {
   constructor(private readonly baseUrl: string, options: ResilienceOptions, fetchImpl?: FetchLike, private readonly network = 'robinhood') {
     // GeckoTerminal's key-free budget is roughly 30 rpm. Stay below it and
     // share one queue across discovery and candle backfills.
-    this.client = new ResilientHttpClient('geckoterminal', { ...options, requestsPerMinute: Math.min(25, options.requestsPerMinute), cacheTtlMs: Math.max(options.cacheTtlMs, 60_000) }, fetchImpl);
+    // Although the published key-free ceiling is higher, shared-IP deployments
+    // can receive 429s below it. Ten rpm leaves room for other tools on the VPS
+    // and makes discovery/backfill slow-but-boring instead of bursty.
+    this.client = new ResilientHttpClient('geckoterminal', { ...options, requestsPerMinute: Math.min(10, options.requestsPerMinute), cacheTtlMs: Math.max(options.cacheTtlMs, 60_000) }, fetchImpl);
   }
 
   status() { return this.client.status(); }

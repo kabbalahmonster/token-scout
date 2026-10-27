@@ -2,7 +2,7 @@
 
 | Source | Use | Public budget used by DoomScout | Failure meaning |
 | --- | --- | --- | --- |
-| GeckoTerminal | paginated top/new pool discovery and hourly OHLCV bootstrap | ≤25 rpm, shared queue | broad discovery/history is partial, stale, or unavailable |
+| GeckoTerminal | paginated top/new pool discovery and hourly OHLCV bootstrap | ≤10 rpm, shared queue | broad discovery/history is partial, stale, or unavailable |
 | DexScreener | profile leads, pair cross-checks, price, liquidity, volume | profiles ≤50 rpm; pairs ≤240 rpm | pair evidence is stale or unavailable |
 | Robinhood RPC | code, storage, ERC-20 reads, gas | ≤240 rpm | contract facts are unknown |
 | Robinhood Blockscout | optional verification context | ≤50 rpm, 5-minute cache | verification context is unknown |
