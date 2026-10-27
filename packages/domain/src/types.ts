@@ -11,6 +11,7 @@ export type CandidateState =
   | 'discovered' | 'queued' | 'collecting_history' | 'assessed'
   | 'watched' | 'stale' | 'rejected' | 'archived';
 export type Verdict = 'PASS' | 'CAUTION' | 'REJECT' | 'UNASSESSED';
+export type AssetType = 'crypto' | 'tokenized_stock' | 'stablecoin';
 export type RouteState =
   | 'not_attempted' | 'not_configured' | 'available'
   | 'no_route_or_liquidity' | 'quote_failed' | 'timed_out' | 'stale';
@@ -58,6 +59,7 @@ export interface Candidate {
   name: string | null;
   decimals: number | null;
   totalSupply: string | null;
+  assetType: AssetType;
   state: CandidateState;
   canonicalPair: Address | null;
   discoveredAt: string;

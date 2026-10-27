@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Decimal } from 'decimal.js';
-import type { Address, Candidate, CandidateState, ContractScan, MarketSnapshot, RiskFlag, RouteAssessment, ScoreResult, SourceStatus, SwingStudy, Verdict } from '@doomscout/domain';
+import { classifyAssetType, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
 import type { DatabaseSchema } from './schema.js';
 
 const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
@@ -42,7 +42,7 @@ export function openDatabase(path: string): OpenDatabase {
 
 function candidateFromRow(row: DatabaseSchema['candidates'] & { latest_json?: string | null }): Candidate {
   return {
-    chainId: row.chain_id, address: row.address as Address, symbol: row.symbol, name: row.name, decimals: row.decimals, totalSupply: row.total_supply,
+    chainId: row.chain_id, address: row.address as Address, symbol: row.symbol, name: row.name, decimals: row.decimals, totalSupply: row.total_supply, assetType: classifyAssetType(row.symbol, row.name),
     state: row.state as CandidateState, canonicalPair: row.canonical_pair as Address | null, discoveredAt: row.discovered_at, updatedAt: row.updated_at,
     watched: row.watched === 1, score: row.score, verdict: row.verdict as Verdict, confidence: row.confidence, scoreVersion: row.score_version,
     flags: JSON.parse(row.flags_json) as RiskFlag[], latestSnapshot: row.latest_json ? snapshotFromRow(JSON.parse(row.latest_json)) : null,
@@ -58,8 +58,8 @@ function snapshotFromRow(row: any): MarketSnapshot {
     ingestedAt: row.ingested_at, source: row.source, fingerprint: row.fingerprint };
 }
 
-export type CandidateSort = 'token' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
-export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
+export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
+export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 
 export class Repositories {
   constructor(readonly db: Kysely<DatabaseSchema>) {}
@@ -109,12 +109,14 @@ export class Repositories {
       const preferred = study?.results.find((result) => result.threshold === 0.05 && result.horizon === '7d') ?? study?.results[0];
       return { ...candidateFromRow(row), latestSnapshot, swingScore: preferred?.suitability ?? null, routeState: route?.state ?? 'not_attempted' as const, routeRecoveryPct: route?.recoveryPct ?? null };
     }));
+    if (filters.assetType) candidates = candidates.filter((candidate) => candidate.assetType === filters.assetType);
     if (filters.minLiquidityUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.liquidityUsd ?? -1) >= filters.minLiquidityUsd!);
     if (filters.minVolumeUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.volume24hUsd ?? -1) >= filters.minVolumeUsd!);
     if (filters.routeState) candidates = candidates.filter((candidate) => candidate.routeState === filters.routeState);
     if (filters.riskFlag) candidates = candidates.filter((candidate) => candidate.flags.some((flag) => flag.code === filters.riskFlag && flag.state === 'detected'));
     const value = (candidate: Candidate): number | string | null => {
       if (filters.sort === 'token') return (candidate.symbol ?? candidate.name ?? candidate.address).toLocaleLowerCase();
+      if (filters.sort === 'asset_type') return candidate.assetType;
       if (filters.sort === 'verdict') return candidate.verdict;
       if (filters.sort === 'state') return candidate.state;
       if (filters.sort === 'swing') return candidate.swingScore ?? null;

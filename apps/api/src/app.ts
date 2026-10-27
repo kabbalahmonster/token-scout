@@ -8,7 +8,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import type { AppConfig } from '@doomscout/config';
 import type { OpenDatabase } from '@doomscout/database';
-import { generateRecommendation, isEvmAddress, normalizeAddress, recommendationToEnv, type CandidateState, type Verdict } from '@doomscout/domain';
+import { generateRecommendation, isEvmAddress, normalizeAddress, recommendationToEnv, type AssetType, type CandidateState, type Verdict } from '@doomscout/domain';
 
 const addressParamSchema = { type: 'object', required: ['chainId', 'address'], properties: { chainId: { type: 'integer', minimum: 1 }, address: { type: 'string', pattern: '^0x[a-fA-F0-9]{40}$' } } } as const;
 
@@ -61,9 +61,24 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
   app.get('/api/v1/health', { schema: { tags: ['health'], response: { 200: { type: 'object', properties: { status: { type: 'string' }, database: { type: 'boolean' }, time: { type: 'string' } } } } } }, async () => ({ status: 'ok', database: await database.repositories.healthy(), time: new Date().toISOString() }));
   app.get('/api/v1/ready', { schema: { tags: ['health'] } }, async (_request, reply) => (await database.repositories.healthy()) ? { status: 'ready' } : reply.code(503).send({ status: 'not_ready' }));
 
-  app.get('/api/v1/candidates', { schema: { tags: ['candidates'], querystring: { type: 'object', properties: { state: { type: 'string' }, watched: { type: 'boolean' }, verdict: { type: 'string' }, minScore: { type: 'number' }, minLiquidityUsd: { type: 'number' }, minVolumeUsd: { type: 'number' }, routeState: { type: 'string' }, riskFlag: { type: 'string', maxLength: 80 }, search: { type: 'string', maxLength: 100 }, limit: { type: 'integer', minimum: 1, maximum: 500 }, offset: { type: 'integer', minimum: 0 }, sort: { enum: ['token', 'score', 'verdict', 'state', 'swing', 'liquidity', 'market_cap', 'volume', 'volume_liquidity', 'age', 'route', 'route_recovery', 'flags', 'updated'] }, direction: { enum: ['asc', 'desc'] } } } } }, async (request) => {
+  app.get('/api/v1/candidates', { schema: { tags: ['candidates'], querystring: { type: 'object', properties: { state: { type: 'string' }, watched: { type: 'boolean' }, verdict: { type: 'string' }, assetType: { enum: ['crypto', 'tokenized_stock', 'stablecoin'] }, minScore: { type: 'number' }, minLiquidityUsd: { type: 'number' }, minVolumeUsd: { type: 'number' }, routeState: { type: 'string' }, riskFlag: { type: 'string', maxLength: 80 }, search: { type: 'string', maxLength: 100 }, limit: { type: 'integer', minimum: 1, maximum: 500 }, offset: { type: 'integer', minimum: 0 }, sort: { enum: ['token', 'asset_type', 'score', 'verdict', 'state', 'swing', 'liquidity', 'market_cap', 'volume', 'volume_liquidity', 'age', 'route', 'route_recovery', 'flags', 'updated'] }, direction: { enum: ['asc', 'desc'] } } } } }, async (request) => {
     const query = request.query as any;
-    return { data: await database.repositories.listCandidates({ ...(query.state ? { state: query.state as CandidateState } : {}), ...(query.watched === undefined ? {} : { watched: Boolean(query.watched) }), ...(query.verdict ? { verdict: query.verdict as Verdict } : {}), ...(query.minScore === undefined ? {} : { minScore: Number(query.minScore) }), ...(query.minLiquidityUsd === undefined ? {} : { minLiquidityUsd: Number(query.minLiquidityUsd) }), ...(query.minVolumeUsd === undefined ? {} : { minVolumeUsd: Number(query.minVolumeUsd) }), ...(query.routeState ? { routeState: String(query.routeState) } : {}), ...(query.riskFlag ? { riskFlag: String(query.riskFlag) } : {}), ...(query.search ? { search: String(query.search) } : {}), ...(query.limit === undefined ? {} : { limit: Number(query.limit) }), ...(query.offset === undefined ? {} : { offset: Number(query.offset) }), ...(query.sort ? { sort: query.sort } : {}), ...(query.direction ? { direction: query.direction } : {}) }), meta: { generatedAt: new Date().toISOString() } };
+    return { data: await database.repositories.listCandidates({
+      ...(query.state ? { state: query.state as CandidateState } : {}),
+      ...(query.watched === undefined ? {} : { watched: Boolean(query.watched) }),
+      ...(query.verdict ? { verdict: query.verdict as Verdict } : {}),
+      ...(query.assetType ? { assetType: query.assetType as AssetType } : {}),
+      ...(query.minScore === undefined ? {} : { minScore: Number(query.minScore) }),
+      ...(query.minLiquidityUsd === undefined ? {} : { minLiquidityUsd: Number(query.minLiquidityUsd) }),
+      ...(query.minVolumeUsd === undefined ? {} : { minVolumeUsd: Number(query.minVolumeUsd) }),
+      ...(query.routeState ? { routeState: String(query.routeState) } : {}),
+      ...(query.riskFlag ? { riskFlag: String(query.riskFlag) } : {}),
+      ...(query.search ? { search: String(query.search) } : {}),
+      ...(query.limit === undefined ? {} : { limit: Number(query.limit) }),
+      ...(query.offset === undefined ? {} : { offset: Number(query.offset) }),
+      ...(query.sort ? { sort: query.sort } : {}),
+      ...(query.direction ? { direction: query.direction } : {})
+    }), meta: { generatedAt: new Date().toISOString() } };
   });
 
   app.post('/api/v1/candidates/assess', { schema: { tags: ['candidates'], body: { type: 'object', additionalProperties: false, required: ['address'], properties: { chainId: { type: 'integer', minimum: 1, default: 4663 }, address: { type: 'string', pattern: '^0x[a-fA-F0-9]{40}$' } } } } }, async (request, reply) => {

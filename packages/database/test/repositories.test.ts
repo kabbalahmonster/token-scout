@@ -43,6 +43,18 @@ describe('repositories', () => {
     expect((await database.repositories.listCandidates({ sort: 'token', direction: 'asc', limit: 1 })).map((candidate) => candidate.symbol)).toEqual(['ALPHA']);
   });
 
+  it('filters and sorts additive asset classifications without migrating candidate rows', async () => {
+    database = openDatabase(':memory:');
+    const crypto = '0x1111111111111111111111111111111111111111' as const;
+    const stock = '0x2222222222222222222222222222222222222222' as const;
+    const stablecoin = '0x3333333333333333333333333333333333333333' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address: crypto, symbol: 'WETH', name: 'Wrapped Ether' });
+    await database.repositories.upsertCandidate({ chainId: 4663, address: stock, symbol: 'GME', name: 'GameStop • Robinhood Token' });
+    await database.repositories.upsertCandidate({ chainId: 4663, address: stablecoin, symbol: 'USDG', name: 'Global Dollar' });
+    expect((await database.repositories.listCandidates({ assetType: 'crypto' })).map((candidate) => candidate.address)).toEqual([crypto]);
+    expect((await database.repositories.listCandidates({ sort: 'asset_type', direction: 'asc' })).map((candidate) => candidate.assetType)).toEqual(['crypto', 'stablecoin', 'tokenized_stock']);
+  });
+
   it('allows a recurring dedupe key after completion without colliding', async () => {
     database = openDatabase(':memory:');
     expect(await database.repositories.enqueue('discover', 'same-window', {})).toBeTypeOf('string');
