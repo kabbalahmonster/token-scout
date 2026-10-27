@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "typecheck": "tsc -b --pretty false", "preview": "vite preview" },
+  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "build:hosted": "tsc -b && VITE_BASE_PATH=/doomscout/ vite build --outDir dist-hosted", "typecheck": "tsc -b --pretty false", "preview": "vite preview" },
   "dependencies": {
     "@doomscout/domain": "workspace:*",
     "@tanstack/react-query": "^5.90.5",

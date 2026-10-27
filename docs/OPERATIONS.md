@@ -35,6 +35,14 @@ the API remains loopback/private-network bound. Never combine it with a
 directly internet-accessible API port, because clients could forge forwarding
 headers and evade per-IP rate limits.
 
+### DoomDash subpath deployment
+
+The live `https://doomdash.ca/doomscout/` console uses a separate
+`apps/web/dist-hosted` bundle so ordinary root-path builds cannot overwrite the
+served assets. Build it with `pnpm build:hosted`. The `doomscout-web.service`
+preview process must serve `--outDir dist-hosted`. The generic Docker deployment
+continues to build and serve `apps/web/dist` at the domain root.
+
 ## Upgrade and rollback
 
 Back up first, fetch a reviewed revision, then rebuild. A rollback is a checkout

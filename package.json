@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "concurrently -n api,worker,web -c blue,magenta,cyan \"corepack pnpm --filter @doomscout/api dev\" \"corepack pnpm --filter @doomscout/worker dev\" \"corepack pnpm --filter @doomscout/web dev\"",
     "build": "corepack pnpm -r --if-present build",
+    "build:hosted": "corepack pnpm build && corepack pnpm --filter @doomscout/web build:hosted",
     "typecheck": "corepack pnpm build && corepack pnpm -r --if-present typecheck",
     "lint": "corepack pnpm -r --filter './packages/**' --if-present build && eslint . --max-warnings=0",
     "test": "vitest run",
