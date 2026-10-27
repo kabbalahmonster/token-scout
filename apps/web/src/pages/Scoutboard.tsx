@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronRight, Copy, SlidersHorizontal } from 'lucide-react';
 import type { Candidate } from '@doomscout/domain';
 import { client } from '../api.js';
 import { Age, Money, StateBadge, VerdictBadge } from '../components/Status.js';
@@ -12,11 +12,12 @@ type CandidateSort = 'token' | 'score' | 'verdict' | 'state' | 'swing' | 'liquid
 const headerSorts: Record<string, CandidateSort> = { token: 'token', score: 'score', verdict: 'verdict', state: 'state', liquidity: 'liquidity', marketCap: 'market_cap', volume: 'volume', age: 'age', swingScore: 'swing', routeState: 'route', flags: 'flags' };
 export function Scoutboard() {
   const [search, setSearch] = useState(''); const [verdict, setVerdict] = useState(''); const [minScore, setMinScore] = useState(''); const [routeState, setRouteState] = useState(''); const [sort, setSort] = useState<CandidateSort>('score'); const [direction, setDirection] = useState<'asc' | 'desc'>('desc'); const [presetName, setPresetName] = useState('');
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [presets, setPresets] = useState<Array<{ name: string; search: string; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; verdict: string; minScore: string }>; } catch { return []; } });
   const params = new URLSearchParams(); if (search) params.set('search', search); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState); params.set('sort', sort); params.set('direction', direction); params.set('limit', '500');
   const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), refetchInterval: 15_000 });
   const columns = useMemo(() => [
-    column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => <Link className="token" to={`/tokens/${row.original.chainId}/${row.original.address}`}><strong>{row.original.symbol ?? 'UNKNOWN'}</strong><span>{row.original.name ?? `${row.original.address.slice(0, 8)}…${row.original.address.slice(-5)}`}</span></Link> }),
+    column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => { const candidate = row.original; const copied = copiedAddress === candidate.address; return <div className="token-cell"><Link className="token" to={`/tokens/${candidate.chainId}/${candidate.address}`}><strong>{candidate.symbol ?? 'UNKNOWN'}</strong><span>{candidate.name ?? `${candidate.address.slice(0, 8)}…${candidate.address.slice(-5)}`}</span></Link><button className={`copy-address${copied ? ' copied' : ''}`} type="button" title={candidate.address} aria-label={`${copied ? 'Copied' : 'Copy'} contract address ${candidate.address}`} onClick={() => { void navigator.clipboard.writeText(candidate.address).then(() => { setCopiedAddress(candidate.address); window.setTimeout(() => setCopiedAddress((current) => current === candidate.address ? null : current), 1500); }); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</button></div>; } }),
     column.accessor('score', { header: 'Score', cell: ({ row }) => <div className="score"><strong>{row.original.score ?? '—'}</strong><span>{row.original.confidence}% confidence</span></div> }),
     column.accessor('verdict', { header: 'Verdict', cell: (info) => <VerdictBadge verdict={info.getValue()}/> }),
     column.accessor('state', { header: 'Lifecycle', cell: (info) => <StateBadge state={info.getValue()}/> }),
@@ -28,7 +29,7 @@ export function Scoutboard() {
     column.accessor('routeState', { header: 'Route', cell: (info) => <StateBadge state={info.getValue() ?? 'not_attempted'}/> }),
     column.display({ id: 'flags', header: 'Flags', cell: ({ row }) => { const flags = row.original.flags.filter((flag) => flag.state === 'detected'); return <span className={flags.length ? 'flag-count' : 'muted'}>{flags.length ? <><AlertTriangle size={14}/>{flags.length}</> : 'none detected*'}</span>; } }),
     column.display({ id: 'go', cell: ({ row }) => <Link aria-label={`Open ${row.original.symbol ?? row.original.address}`} to={`/tokens/${row.original.chainId}/${row.original.address}`}><ChevronRight size={17}/></Link> })
-  ], []);
+  ], [copiedAddress]);
   const table = useReactTable({ data: query.data?.data ?? [], columns, getCoreRowModel: getCoreRowModel() });
   return <section className="page">
     <div className="pagehead"><div><p className="eyebrow">Candidate intelligence</p><h1>Scoutboard</h1><p>Ranked for grid/gridless suitability—not hype, safety, or predicted profit.</p></div><div className="stat"><strong>{query.data?.data.length ?? 0}</strong><span>visible candidates</span></div></div>
