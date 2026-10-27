@@ -19,6 +19,17 @@ test('candidate headers request ascending and descending sorts', async ({ page }
   await nextRequest;
 });
 
+test('candidate filters collapse on mobile and remain usable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const toggle = page.getByRole('button', { name: /Filters & sorting/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByLabel('Search candidates')).toBeHidden();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByLabel('Search candidates')).toBeVisible();
+});
+
 test('upstream API throttling is visible instead of fabricating candidates', async ({ page }) => {
   await page.route('**/api/v1/candidates**', async (route) => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ message: 'Rate limit reached' }) }));
   await page.goto('/');
