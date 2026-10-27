@@ -166,6 +166,11 @@ export class Repositories {
     return row ? snapshotFromRow(row) : null;
   }
 
+  async hasSnapshotSource(chainId: number, address: Address, source: string): Promise<boolean> {
+    const row = await this.db.selectFrom('market_snapshots').select('id').where('chain_id', '=', chainId).where('token_address', '=', address).where('source', '=', source).limit(1).executeTakeFirst();
+    return row !== undefined;
+  }
+
   async history(chainId: number, address: Address, since?: string, limit = 20_000): Promise<MarketSnapshot[]> {
     let query = this.db.selectFrom('market_snapshots').selectAll().where('chain_id', '=', chainId).where('token_address', '=', address);
     if (since) query = query.where('ingested_at', '>=', since);
@@ -213,6 +218,13 @@ export class Repositories {
   async recordDiscovery(input: { chainId: number; tokenAddress: Address | null; source: string; sourceId: string | null; sourceTime: string | null; outcome: string; errorCode?: string }): Promise<void> { const ingestedAt = new Date().toISOString(); const fingerprint = createHash('sha256').update(JSON.stringify({ ...input, bucket: ingestedAt.slice(0, 16) })).digest('hex'); await this.db.insertInto('discovery_records').values({ chain_id: input.chainId, token_address: input.tokenAddress, source: input.source, source_id: input.sourceId, source_time: input.sourceTime, ingested_at: ingestedAt, outcome: input.outcome, error_code: input.errorCode ?? null, fingerprint }).onConflict((conflict) => conflict.column('fingerprint').doNothing()).execute(); }
 
   async enqueue(kind: string, dedupeKey: string, payload: unknown, runAfter = new Date().toISOString()): Promise<string | null> { const id = randomUUID(); const now = new Date().toISOString(); const result = await this.db.insertInto('jobs').values({ id, kind, dedupe_key: dedupeKey, payload_json: JSON.stringify(payload), state: 'queued', run_after: runAfter, attempts: 0, locked_at: null, locked_by: null, last_error: null, created_at: now, updated_at: now }).onConflict((conflict) => conflict.doNothing()).returning('id').executeTakeFirst(); return result?.id ?? null; }
+  async enqueueScheduled(kind: string, dedupeKey: string, payload: unknown, runAfter = new Date().toISOString()): Promise<string | null> {
+    // Scheduled bucket keys are permanent idempotency keys. The active-job
+    // unique index prevents concurrent duplicates, while this historical check
+    // prevents the ten-second scheduler from recreating a completed bucket.
+    const existing = await this.db.selectFrom('jobs').select('id').where('kind', '=', kind).where('dedupe_key', '=', dedupeKey).executeTakeFirst();
+    return existing ? null : this.enqueue(kind, dedupeKey, payload, runAfter);
+  }
   async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> { return this.db.transaction().execute(async (trx) => { const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy('run_after').executeTakeFirst(); if (!row) return null; const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: new Date().toISOString(), locked_by: workerId, attempts: row.attempts + 1, updated_at: new Date().toISOString() }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst(); return updated ? { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts } : null; }); }
   async finishJob(id: string): Promise<void> { await this.db.updateTable('jobs').set({ state: 'completed', locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).where('id', '=', id).execute(); }
   async failJob(id: string, error: string, retryAt?: string): Promise<void> { await this.db.updateTable('jobs').set({ state: retryAt ? 'queued' : 'failed', run_after: retryAt ?? new Date().toISOString(), last_error: error.slice(0, 500), locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).where('id', '=', id).execute(); }

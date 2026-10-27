@@ -42,4 +42,15 @@ describe('swing engine', () => {
     expect(result.eventTraversalDurationSeconds.mean).toBe(3600);
     expect(result.quality.coveragePct).toBeGreaterThan(0);
   });
+
+  it('treats imported hourly provider candles as continuous retained evidence', () => {
+    const points = [
+      { ...snapshot(1, 0, '1'), source: 'geckoterminal_1h_candle' },
+      { ...snapshot(2, 60, '1.10'), source: 'geckoterminal_1h_candle' },
+      { ...snapshot(3, 120, '1.00'), source: 'geckoterminal_1h_candle' }
+    ];
+    const result = calculateSwingStudy(points, { thresholds: [0.05], horizonsSeconds: { '7d': 604_800 } }, new Date(base + 120 * 60_000).toISOString()).results[0]!;
+    expect(result.events.length).toBeGreaterThan(1);
+    expect(result.quality.largestGapSeconds).toBe(3600);
+  });
 });

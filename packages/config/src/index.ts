@@ -19,10 +19,17 @@ const configSchema = z.object({
   ROBINHOOD_RPC_URL: z.string().url().default('https://rpc.mainnet.chain.robinhood.com'),
   ROBINHOOD_BLOCKSCOUT_URL: z.string().url().default('https://robinhoodchain.blockscout.com'),
   DEXSCREENER_API_URL: z.string().url().default('https://api.dexscreener.com'),
+  GECKOTERMINAL_API_URL: z.string().url().default('https://api.geckoterminal.com/api/v2'),
   COINGECKO_API_URL: z.string().url().default('https://api.coingecko.com/api/v3'),
   SUSHI_QUOTE_URL: optionalUrl.default('https://api.sushi.com/quote/v7/4663'),
   WRAPPED_NATIVE_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional().or(z.literal('')),
   DISCOVERY_INTERVAL_SECONDS: z.coerce.number().int().min(60).default(900),
+  DISCOVERY_TOP_PAGES: z.coerce.number().int().min(1).max(10).default(5),
+  DISCOVERY_NEW_PAGES: z.coerce.number().int().min(1).max(10).default(2),
+  DISCOVERY_MIN_LIQUIDITY_USD: z.coerce.number().min(0).default(1000),
+  DISCOVERY_MIN_VOLUME_24H_USD: z.coerce.number().min(0).default(100),
+  DISCOVERY_MIN_TRANSACTIONS_24H: z.coerce.number().int().min(0).default(2),
+  HISTORY_BACKFILL_HOURS: z.coerce.number().int().min(24).max(720).default(168),
   WATCHED_POLL_SECONDS: z.coerce.number().int().min(30).max(900).default(60),
   EXPECTED_POLL_SECONDS: z.coerce.number().int().min(30).max(900).default(60),
   ADAPTER_TIMEOUT_MS: z.coerce.number().int().min(500).max(60_000).default(8000),
@@ -62,6 +69,7 @@ export function redactedConfig(config: AppConfig): Record<string, unknown> {
     ...config,
     AUTH_TOKEN: config.AUTH_TOKEN ? '[redacted]' : '',
     ROBINHOOD_RPC_URL: new URL(config.ROBINHOOD_RPC_URL).origin,
+    GECKOTERMINAL_API_URL: new URL(config.GECKOTERMINAL_API_URL).origin,
     SUSHI_QUOTE_URL: config.SUSHI_QUOTE_URL ? new URL(config.SUSHI_QUOTE_URL).origin : ''
   };
 }

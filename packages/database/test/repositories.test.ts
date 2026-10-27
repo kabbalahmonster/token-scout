@@ -45,6 +45,15 @@ describe('repositories', () => {
     expect(await database.repositories.jobStats()).toEqual({ completed: 2 });
   });
 
+  it('enqueues a scheduled time bucket only once even after completion', async () => {
+    database = openDatabase(':memory:');
+    expect(await database.repositories.enqueueScheduled('discover', 'bucket:1', {})).toBeTypeOf('string');
+    const first = await database.repositories.claimJob('test');
+    await database.repositories.finishJob(first!.id);
+    expect(await database.repositories.enqueueScheduled('discover', 'bucket:1', {})).toBeNull();
+    expect(await database.repositories.jobStats()).toEqual({ completed: 1 });
+  });
+
   it('applies and clears a canonical-pair override deterministically', async () => {
     database = openDatabase(':memory:');
     const address = '0x1111111111111111111111111111111111111111' as const;

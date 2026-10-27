@@ -10,10 +10,13 @@ export function TokenDetail() {
   const cache = useQueryClient();
   const detail = useQuery({ queryKey: ['candidate', chainId, address], queryFn: () => client.candidate(chainId, address), refetchInterval: 15_000 });
   const history = useQuery({ queryKey: ['history', chainId, address], queryFn: () => client.history(chainId, address), refetchInterval: 60_000 });
+  // Hooks must run in the same order on the loading and loaded renders. This
+  // mutation used to sit below the early returns, crashing token detail pages
+  // with React error #310 as soon as the first API response arrived.
+  const setPair = useMutation({ mutationFn: (pairAddress: string) => client.setCanonicalPair(chainId, address, pairAddress || null), onSuccess: async () => { await cache.invalidateQueries({ queryKey: ['candidate', chainId, address] }); } });
   if (detail.isLoading) return <section className="page"><p>Loading evidence…</p></section>;
   if (!detail.data) return <section className="page"><div className="notice error">Candidate not found or API unavailable.</div></section>;
   const { candidate, score, swings, route, contract, pairs } = detail.data; const snap = candidate.latestSnapshot;
-  const setPair = useMutation({ mutationFn: (pairAddress: string) => client.setCanonicalPair(chainId, address, pairAddress || null), onSuccess: async () => { await cache.invalidateQueries({ queryKey: ['candidate', chainId, address] }); } });
   const primarySwing = swings?.results.find((item) => item.threshold === 0.05 && item.horizon === '7d') ?? swings?.results[0];
   return <section className="page detail">
     <Link className="back" to="/"><ArrowLeft size={15}/> Scoutboard</Link>

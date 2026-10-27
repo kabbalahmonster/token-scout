@@ -20,6 +20,9 @@ Raw, 5-minute, and hourly points carry their own expected cadence. Gap
 segmentation uses the slower cadence at a tier boundary, so retained hourly
 history is not split into one-point segments merely because the live poll
 cadence is one minute. Coverage likewise integrates each tier's cadence.
+Attributed GeckoTerminal hourly candles use the same 3,600-second cadence and
+are stored before analysis; provider 24-hour percentage changes are never used
+as synthetic price history.
 
 Prices enter `Decimal` before arithmetic. JavaScript `number` is only used for
 bounded ratios and displayed statistics. This avoids integer/token-unit loss

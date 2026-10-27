@@ -16,7 +16,7 @@ interface Point { id: number; at: number; price: Decimal; source: string; expect
 
 function expectedCadence(source: string, fallback: number): number {
   if (source === 'doomscout_5m_aggregate') return 300;
-  if (source === 'doomscout_1h_aggregate') return 3600;
+  if (source === 'doomscout_1h_aggregate' || source === 'geckoterminal_1h_candle') return 3600;
   return fallback;
 }
 

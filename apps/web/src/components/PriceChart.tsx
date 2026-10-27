@@ -15,7 +15,7 @@ export function PriceChart({ snapshots }: { snapshots: MarketSnapshot[] }) {
       const timestamp = Math.floor(Date.parse(snapshot.ingestedAt) / 1000);
       const value = Number(snapshot.priceUsd ?? snapshot.priceNative);
       if (!Number.isFinite(timestamp) || !Number.isFinite(value)) continue;
-      const expected = snapshot.source === 'doomscout_1h_aggregate' ? 3600 : snapshot.source === 'doomscout_5m_aggregate' ? 300 : 60;
+      const expected = snapshot.source === 'doomscout_1h_aggregate' || snapshot.source === 'geckoterminal_1h_candle' ? 3600 : snapshot.source === 'doomscout_5m_aggregate' ? 300 : 60;
       // Aggregated history has a lower expected cadence than raw observations;
       // break only when a gap exceeds three intervals for either adjacent tier.
       if (previous && timestamp - previous > Math.max(previousExpected, expected) * 3) points.push({ time: (previous + previousExpected) as Time });

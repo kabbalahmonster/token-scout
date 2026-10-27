@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import type { ServerResponse } from 'node:http';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -29,6 +30,8 @@ function csvEscape(value: unknown): string {
 
 export async function buildApp(config: AppConfig, database: OpenDatabase): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.LOG_LEVEL, redact: ['req.headers.authorization', 'req.headers.cookie'] }, trustProxy: config.TRUST_PROXY, bodyLimit: 1_000_000 });
+  const liveStreams = new Set<ServerResponse>();
+  app.addHook('preClose', async () => { for (const stream of liveStreams) stream.end(); liveStreams.clear(); });
   await app.register(cors, { origin: config.NODE_ENV === 'development' ? [/^http:\/\/(127\.0\.0\.1|localhost):\d+$/] : false });
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(rateLimit, { max: 120, timeWindow: '1 minute', keyGenerator: (request) => request.ip });
@@ -130,11 +133,12 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
     // reconnects still supply Last-Event-ID and therefore resume losslessly.
     let lastId = suppliedCursor === undefined ? await database.repositories.latestEventId() : Number(suppliedCursor);
     reply.hijack();
+    liveStreams.add(reply.raw);
     reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const send = async () => { const events = await database.repositories.eventsAfter(lastId); for (const event of events) { lastId = event.id; reply.raw.write(`id: ${event.id}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event.payload)}\n\n`); } reply.raw.write(`: keepalive ${Date.now()}\n\n`); };
     await send();
     const timer = setInterval(() => { void send().catch(() => reply.raw.end()); }, 5000);
-    request.raw.on('close', () => clearInterval(timer));
+    request.raw.on('close', () => { clearInterval(timer); liveStreams.delete(reply.raw); });
   });
 
   return app;

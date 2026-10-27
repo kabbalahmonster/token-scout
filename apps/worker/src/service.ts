@@ -1,11 +1,12 @@
 import { Decimal } from 'decimal.js';
-import { BlockscoutAdapter, CoinGeckoAdapter, DexScreenerAdapter, JsonRpcAdapter, SushiQuoteAdapter, type ResilienceOptions } from '@doomscout/adapters';
+import { BlockscoutAdapter, CoinGeckoAdapter, DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, SushiQuoteAdapter, type GeckoDiscoveryLead, type ResilienceOptions } from '@doomscout/adapters';
 import type { AppConfig } from '@doomscout/config';
 import type { Repositories } from '@doomscout/database';
 import { calculateSwingStudy, normalizeAddress, scoreCandidate, type Address, type RouteAssessment } from '@doomscout/domain';
 
 export class AssessmentService {
   readonly dex: DexScreenerAdapter;
+  readonly geckoTerminal: GeckoTerminalAdapter;
   readonly rpc: JsonRpcAdapter;
   readonly blockscout: BlockscoutAdapter;
   readonly coinGecko: CoinGeckoAdapter;
@@ -14,6 +15,7 @@ export class AssessmentService {
   constructor(private readonly config: AppConfig, private readonly repositories: Repositories) {
     const resilience: ResilienceOptions = { timeoutMs: config.ADAPTER_TIMEOUT_MS, retries: config.ADAPTER_RETRIES, cacheTtlMs: config.ADAPTER_CACHE_SECONDS * 1000, requestsPerMinute: 60 };
     this.dex = new DexScreenerAdapter(config.DEXSCREENER_API_URL, resilience);
+    this.geckoTerminal = new GeckoTerminalAdapter(config.GECKOTERMINAL_API_URL, resilience);
     this.rpc = new JsonRpcAdapter(config.ROBINHOOD_RPC_URL, resilience);
     this.blockscout = new BlockscoutAdapter(config.ROBINHOOD_BLOCKSCOUT_URL, resilience);
     this.coinGecko = new CoinGeckoAdapter(config.COINGECKO_API_URL, resilience);
@@ -21,22 +23,53 @@ export class AssessmentService {
   }
 
   async persistStatuses(): Promise<void> {
-    const statuses = [...this.dex.statuses(), this.rpc.status(), this.blockscout.status(), this.coinGecko.status(), this.sushi.status()];
+    const statuses = [...this.dex.statuses(), this.geckoTerminal.status(), this.rpc.status(), this.blockscout.status(), this.coinGecko.status(), this.sushi.status()];
     await Promise.all(statuses.map((status) => this.repositories.setSourceStatus(status)));
   }
 
   async discover(): Promise<number> {
     try {
-      const leads = await this.dex.discover();
-      for (const lead of leads) {
-        await this.repositories.upsertCandidate({ chainId: this.config.CHAIN_ID, address: lead.address });
-        await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, source: 'dexscreener_profiles', sourceId: lead.sourceId, sourceTime: lead.sourceTime, outcome: 'accepted' });
-        await this.repositories.enqueue('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
+      const [geckoResult, profileResult] = await Promise.allSettled([
+        this.geckoTerminal.discover(this.config.DISCOVERY_TOP_PAGES, this.config.DISCOVERY_NEW_PAGES),
+        this.dex.discover()
+      ]);
+      const geckoLeads = geckoResult.status === 'fulfilled' ? geckoResult.value : [];
+      const profileLeads = profileResult.status === 'fulfilled' ? profileResult.value : [];
+      if (geckoResult.status === 'rejected') await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: null, source: 'geckoterminal', sourceId: null, sourceTime: null, outcome: 'provider_error', errorCode: geckoResult.reason instanceof Error ? geckoResult.reason.name : 'UNKNOWN' });
+      if (profileResult.status === 'rejected') await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: null, source: 'dexscreener_profiles', sourceId: null, sourceTime: null, outcome: 'provider_error', errorCode: profileResult.reason instanceof Error ? profileResult.reason.name : 'UNKNOWN' });
+
+      // One candidate can appear in several pools/feeds. Prefer its deepest
+      // indexed pool as the initial evidence and let assessment retain all
+      // later pair observations.
+      const preferred = new Map<string, GeckoDiscoveryLead>();
+      for (const lead of geckoLeads) {
+        const current = preferred.get(lead.address);
+        if (!current || Number(lead.liquidityUsd ?? -1) > Number(current.liquidityUsd ?? -1)) preferred.set(lead.address, lead);
       }
-      return leads.length;
-    } catch (error) {
-      await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: null, source: 'dexscreener_profiles', sourceId: null, sourceTime: null, outcome: 'provider_error', errorCode: error instanceof Error ? error.name : 'UNKNOWN' });
-      throw error;
+      let accepted = 0;
+      for (const lead of preferred.values()) {
+        const liquidity = Number(lead.liquidityUsd ?? 0);
+        const volume = Number(lead.volume24hUsd ?? 0);
+        const transactions = lead.buys24h + lead.sells24h;
+        const eligible = liquidity >= this.config.DISCOVERY_MIN_LIQUIDITY_USD
+          && volume >= this.config.DISCOVERY_MIN_VOLUME_24H_USD
+          && transactions >= this.config.DISCOVERY_MIN_TRANSACTIONS_24H;
+        await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, source: 'geckoterminal_pool_index', sourceId: lead.sourceId, sourceTime: lead.createdAt, outcome: eligible ? 'accepted' : 'below_intake_threshold' });
+        if (!eligible) continue;
+        await this.repositories.upsertCandidate({ chainId: this.config.CHAIN_ID, address: lead.address });
+        await this.repositories.upsertPair({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, pairAddress: lead.poolAddress, dex: lead.dex, url: null, quoteTokenAddress: lead.quoteTokenAddress, createdAt: lead.createdAt, liquidityUsd: lead.liquidityUsd });
+        await this.repositories.insertSnapshot(lead.snapshot, lead.raw);
+        await this.repositories.enqueue('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
+        accepted += 1;
+      }
+      // Keep DexScreener profiles as a secondary early-warning feed. They are
+      // queued for validation but do not bypass the market-activity criteria
+      // for the ranked universe unless GeckoTerminal also observes a pool.
+      const acceptedAddresses = new Set([...preferred.values()].map((lead) => lead.address));
+      for (const lead of profileLeads.filter((item) => !acceptedAddresses.has(item.address))) {
+        await this.repositories.recordDiscovery({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, source: 'dexscreener_profiles', sourceId: lead.sourceId, sourceTime: lead.sourceTime, outcome: 'lead_only' });
+      }
+      return accepted;
     } finally { await this.persistStatuses(); }
   }
 
@@ -63,6 +96,12 @@ export class AssessmentService {
       const persistedCandidate = await this.repositories.getCandidate(chainId, address);
       const canonical = selectCanonicalMarketPair(market.pairs, persistedCandidate?.canonicalPair ?? null);
       if (canonical) await this.repositories.insertSnapshot(canonical.snapshot, canonical.raw);
+
+      const canonicalPair = canonical?.pairAddress ?? persistedCandidate?.canonicalPair ?? null;
+      if (canonicalPair && !(await this.repositories.hasSnapshotSource(chainId, address, 'geckoterminal_1h_candle'))) {
+        const backfill = await this.geckoTerminal.hourlyHistory(address, canonicalPair, this.config.HISTORY_BACKFILL_HOURS).catch(() => []);
+        for (const snapshot of backfill) await this.repositories.insertSnapshot(snapshot, { provider: 'geckoterminal', kind: 'hourly_ohlcv' });
+      }
 
       const history = await this.repositories.analyticsHistory(chainId, address, this.config.RAW_RETENTION_DAYS, this.config.CANDLE_RETENTION_DAYS, this.config.HOURLY_RETENTION_DAYS);
       const study = calculateSwingStudy(history, { thresholds: this.config.SWING_THRESHOLDS, expectedPollSeconds: this.config.EXPECTED_POLL_SECONDS, minimumEventSeparationSeconds: this.config.SWING_MIN_SEPARATION_SECONDS, confirmationSamples: this.config.SWING_CONFIRMATION_SAMPLES });

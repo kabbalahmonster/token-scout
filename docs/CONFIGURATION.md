@@ -5,6 +5,13 @@ mainnet (4663), bind locally, use only credential-free providers, poll discovery
 every 15 minutes, and poll watched candidates each minute. Watched cadence is
 validated to 30–900 seconds.
 
+Discovery defaults to five GeckoTerminal top-pool pages plus two new-pool
+pages. `DISCOVERY_MIN_LIQUIDITY_USD`, `DISCOVERY_MIN_VOLUME_24H_USD`, and
+`DISCOVERY_MIN_TRANSACTIONS_24H` define the transparent intake gate.
+`HISTORY_BACKFILL_HOURS` controls the first-assessment hourly OHLCV bootstrap
+(168 hours by default, bounded to 24–720). Keep the page counts and provider
+budgets conservative on the key-free endpoint.
+
 Amounts such as `PLANNED_BUDGET_WEI` are integer strings. Swing thresholds are
 fractions (`0.05` means 5%). Endpoint URLs may contain credentials for a user's
 optional provider but are redacted from startup logs; free public defaults are

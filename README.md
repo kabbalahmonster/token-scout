@@ -27,8 +27,10 @@ The repository now contains the working TypeScript MVP described below:
   recommendation drafts;
 - separate SQLite-backed worker with idempotent discovery, watched polling,
   assessment, retention, and alert jobs;
-- credential-free DexScreener, Robinhood RPC, Blockscout, CoinGecko, and Sushi
-  adapters with source budgets, timeout/retry/cache/circuit state;
+- credential-free GeckoTerminal, DexScreener, Robinhood RPC, Blockscout,
+  CoinGecko, and Sushi adapters with source budgets, timeout/retry/cache/circuit
+  state; GeckoTerminal supplies a broad top/new-pool universe and seven-day
+  hourly OHLCV bootstrap rather than starting every swing study empty;
 - SQLite WAL evidence storage with immutable raw snapshots, 5-minute and hourly
   aggregates, versioned studies/scans/scores, migrations, backup, and restore;
 - strict domain algorithms, fixture/unit/integration/E2E tests, Docker Compose,
@@ -130,7 +132,8 @@ circuit breaker, status indicator, and explicit degraded state.
 
 | Information | Primary source | Requirement |
 | --- | --- | --- |
-| Discovery, pairs, prices, liquidity, volume, pair age | DexScreener public API | Treat profiles/pairs as untrusted leads; retain our own normalized history. |
+| Broad pool discovery and initial history | GeckoTerminal public API | Scan paginated top/new Robinhood pools; retain hourly OHLCV as attributed immutable evidence. |
+| Pair cross-checks, prices, liquidity, volume, pair age | DexScreener public API | Treat profiles/pairs as untrusted leads; retain our own normalized history. |
 | Contract code, ERC-20 reads, logs, gas | Robinhood public JSON-RPC | Use a configurable tested RPC pool. |
 | Explorer and optional verification context | Robinhood Blockscout public explorer/API | Enrichment only; lack of verification is uncertainty, not safety evidence. |
 | ETH/USD reference | CoinGecko free endpoint | Heavily cached; lack of USD conversion cannot block ETH-denominated analysis. |
@@ -184,6 +187,10 @@ navigation, plain-language explanations, and tooltips for every score/flag.
 
 - Poll configured discovery feeds by default every 15 minutes and retain source
   time, ingest time, raw source ID, and ingestion outcome.
+- Build the default universe from five pages of top pools plus two pages of new
+  pools. Intake requires configurable minimum liquidity, 24-hour volume, and
+  transaction activity; below-threshold observations are retained as rejected
+  leads so promising pools can qualify on a later poll.
 - Validate EVM addresses, reject EOAs with `eth_getCode`, and retain chain ID.
 - Merge pools under one token, choosing a canonical pair by documented highest
   trustworthy USD liquidity while retaining all pair identities and allowing a
@@ -209,6 +216,9 @@ ingest time, source identity, and raw-data fingerprint.
   unknown, stale, and failed.
 - Calculate history quality: sample count, coverage %, largest gap, sources,
   earliest/latest point. Insufficient history caps confidence.
+- On first assessment, import up to seven days of real hourly GeckoTerminal
+  OHLCV candles for the canonical pool. Provider candles are explicitly
+  attributed and never reconstructed from a 24-hour percentage.
 
 ### Swing-pattern engine
 

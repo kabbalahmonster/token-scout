@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DexScreenerAdapter, JsonRpcAdapter, ResilientHttpClient, SushiQuoteAdapter } from '../src/index.js';
+import { DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, ResilientHttpClient, SushiQuoteAdapter } from '../src/index.js';
 
 const options = { timeoutMs: 1000, retries: 0, cacheTtlMs: 1, requestsPerMinute: 100_000 };
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
@@ -19,6 +19,22 @@ describe('adapter fixtures', () => {
     const result = await new DexScreenerAdapter('https://fixture.test', options, fetcher).token(4663, requested);
     expect(result.token.symbol).toBeNull();
     expect(result.pairs).toHaveLength(0);
+  });
+
+  it('normalizes and deduplicates GeckoTerminal top/new pool discovery', async () => {
+    const pool = { id: 'robinhood_0x2222222222222222222222222222222222222222', attributes: { address: '0x2222222222222222222222222222222222222222', pool_created_at: '2026-10-01T00:00:00Z', base_token_price_usd: '0.01', base_token_price_native_currency: '0.00001', reserve_in_usd: '25000', volume_usd: { h24: '5000' }, transactions: { h24: { buys: 12, sells: 8 } } }, relationships: { base_token: { data: { id: 'robinhood_0x1111111111111111111111111111111111111111' } }, quote_token: { data: { id: 'robinhood_0x3333333333333333333333333333333333333333' } }, dex: { data: { id: 'fixture-dex' } } } };
+    const fetcher = vi.fn(() => response({ data: [pool] })) as unknown as typeof fetch;
+    const leads = await new GeckoTerminalAdapter('https://fixture.test', options, fetcher).discover(1, 1);
+    expect(leads).toHaveLength(1);
+    expect(leads[0]).toMatchObject({ address: '0x1111111111111111111111111111111111111111', poolAddress: '0x2222222222222222222222222222222222222222', liquidityUsd: '25000', volume24hUsd: '5000', buys24h: 12, sells24h: 8 });
+    expect(leads[0]?.snapshot.source).toBe('geckoterminal');
+  });
+
+  it('imports immutable hourly OHLCV candles for retained swing analysis', async () => {
+    const fetcher = vi.fn(() => response({ data: { attributes: { ohlcv_list: [[1793070000, 1, 1.2, 0.9, 1.1, 1234]] } }, meta: { base: { address: '0x1111111111111111111111111111111111111111' }, quote: { address: '0x3333333333333333333333333333333333333333' } } })) as unknown as typeof fetch;
+    const candles = await new GeckoTerminalAdapter('https://fixture.test', options, fetcher).hourlyHistory('0x1111111111111111111111111111111111111111', '0x2222222222222222222222222222222222222222', 168);
+    expect(candles).toHaveLength(1);
+    expect(candles[0]).toMatchObject({ priceUsd: '1.1', volume1hUsd: '1234', source: 'geckoterminal_1h_candle' });
   });
 
   it('rejects an EOA using eth_getCode', async () => {

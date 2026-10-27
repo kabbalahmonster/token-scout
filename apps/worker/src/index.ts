@@ -15,12 +15,12 @@ function log(level: 'info' | 'warn' | 'error', event: string, detail: Record<str
 
 async function schedule(): Promise<void> {
   const now = Date.now();
-  await database.repositories.enqueue('discover', `discovery:${Math.floor(now / (config.DISCOVERY_INTERVAL_SECONDS * 1000))}`, {});
+  await database.repositories.enqueueScheduled('discover', `discovery:${Math.floor(now / (config.DISCOVERY_INTERVAL_SECONDS * 1000))}`, {});
   const watched = await database.repositories.listCandidates({ watched: true, limit: 500 });
-  await Promise.all(watched.map((candidate) => database.repositories.enqueue('assess', `watch:${candidate.chainId}:${candidate.address}:${Math.floor(now / (config.WATCHED_POLL_SECONDS * 1000))}`, { chainId: candidate.chainId, address: candidate.address })));
+  await Promise.all(watched.map((candidate) => database.repositories.enqueueScheduled('assess', `watch:${candidate.chainId}:${candidate.address}:${Math.floor(now / (config.WATCHED_POLL_SECONDS * 1000))}`, { chainId: candidate.chainId, address: candidate.address })));
   const assessed = await database.repositories.listCandidates({ limit: 500 });
   await Promise.all(assessed.filter((candidate) => candidate.latestSnapshot && Date.now() - Date.parse(candidate.latestSnapshot.ingestedAt) > config.EXPECTED_POLL_SECONDS * 3000).map((candidate) => database.repositories.setCandidateState(candidate.chainId, candidate.address, 'stale')));
-  await database.repositories.enqueue('retention', `retention:${new Date().toISOString().slice(0, 10)}`, {});
+  await database.repositories.enqueueScheduled('retention', `retention:${new Date().toISOString().slice(0, 10)}`, {});
 }
 
 async function runJob(): Promise<boolean> {

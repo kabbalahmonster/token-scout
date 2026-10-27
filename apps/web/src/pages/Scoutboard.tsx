@@ -11,7 +11,7 @@ const column = createColumnHelper<Candidate>();
 export function Scoutboard() {
   const [search, setSearch] = useState(''); const [verdict, setVerdict] = useState(''); const [minScore, setMinScore] = useState(''); const [routeState, setRouteState] = useState(''); const [sort, setSort] = useState('score'); const [presetName, setPresetName] = useState('');
   const [presets, setPresets] = useState<Array<{ name: string; search: string; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; verdict: string; minScore: string }>; } catch { return []; } });
-  const params = new URLSearchParams(); if (search) params.set('search', search); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState); params.set('sort', sort);
+  const params = new URLSearchParams(); if (search) params.set('search', search); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState); params.set('sort', sort); params.set('limit', '500');
   const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), refetchInterval: 15_000 });
   const columns = useMemo(() => [
     column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => <Link className="token" to={`/tokens/${row.original.chainId}/${row.original.address}`}><strong>{row.original.symbol ?? 'UNKNOWN'}</strong><span>{row.original.name ?? `${row.original.address.slice(0, 8)}…${row.original.address.slice(-5)}`}</span></Link> }),
