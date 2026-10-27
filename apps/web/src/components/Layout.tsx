@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Activity, Binoculars, BookOpen, Heart, KeyRound, Radar, Search, ShieldCheck } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { apiBase } from '../base-path.js';
 
 const links = [
   { to: '/', label: 'Scoutboard', icon: Radar },
@@ -11,7 +12,6 @@ const links = [
 
 export function Layout() {
   const [authToken, setAuthToken] = useState(localStorage.getItem('doomscout.authToken') ?? '');
-  const apiBase = import.meta.env.VITE_API_URL ?? '';
   return <div className="shell">
     <aside className="sidebar">
       <div className="brand"><div className="brandmark">D</div><div><strong>DoomScout</strong><span>chain intelligence</span></div></div>

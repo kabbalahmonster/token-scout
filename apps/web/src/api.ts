@@ -1,11 +1,11 @@
 import type { Candidate, ContractScan, MarketSnapshot, RouteAssessment, ScoreResult, SourceStatus, SwingStudy } from '@doomscout/domain';
+import { apiBase } from './base-path.js';
 
-const base = import.meta.env.VITE_API_URL ?? '';
 function token(): string | null { return localStorage.getItem('doomscout.authToken'); }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const auth = token();
-  const response = await fetch(`${base}${path}`, { ...init, headers: { ...(init.body ? { 'content-type': 'application/json' } : {}), ...(auth ? { authorization: `Bearer ${auth}` } : {}), ...init.headers } });
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...(init.body ? { 'content-type': 'application/json' } : {}), ...(auth ? { authorization: `Bearer ${auth}` } : {}), ...init.headers } });
   if (!response.ok) { const detail = await response.json().catch(() => ({ message: response.statusText })) as { message?: string }; throw new Error(detail.message ?? `Request failed (${response.status})`); }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -27,7 +27,7 @@ export const client = {
   addWatchlistItem: (id: string, chainId: number, address: string) => api<void>(`/api/v1/watchlists/${id}/items`, { method: 'POST', body: JSON.stringify({ chainId, address }) })
 };
 
-export function exportUrl(chainId: number, address: string, format: 'json' | 'env'): string { return `${base}/api/v1/export/${chainId}/${address}?format=${format}`; }
+export function exportUrl(chainId: number, address: string, format: 'json' | 'env'): string { return `${apiBase}/api/v1/export/${chainId}/${address}?format=${format}`; }
 export async function downloadExport(chainId: number, address: string, format: 'json' | 'env'): Promise<void> {
   const auth = token();
   const response = await fetch(exportUrl(chainId, address, format), { headers: auth ? { authorization: `Bearer ${auth}` } : {} });
