@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "db:migrate": "corepack pnpm --filter @doomscout/database migrate",
     "db:backup": "tsx scripts/backup.ts",
-    "db:restore": "tsx scripts/restore.ts"
+    "db:restore": "tsx scripts/restore.ts",
+    "rescore": "tsx scripts/rescore.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.38.0",

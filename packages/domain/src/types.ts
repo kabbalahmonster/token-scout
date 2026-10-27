@@ -1,6 +1,6 @@
 export const SCHEMA_VERSION = '1.0.0';
-export const SWING_ALGORITHM_VERSION = '1.0.0';
-export const SCORE_ALGORITHM_VERSION = '1.0.0';
+export const SWING_ALGORITHM_VERSION = '2.0.0';
+export const SCORE_ALGORITHM_VERSION = '2.0.0';
 export const RISK_SCAN_VERSION = '1.0.0';
 export const RECOMMENDATION_VERSION = '1.0.0';
 

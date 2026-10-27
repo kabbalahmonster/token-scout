@@ -189,19 +189,38 @@ function analyze(points: Point[], threshold: number, horizon: string, horizonSec
   const firstRange = range(relevant.slice(0, half));
   const secondRange = range(relevant.slice(half));
   const qualityResult = quality(relevant, horizonSeconds, parameters.expectedPollSeconds, parameters.maxGapMultiplier);
-  const regularity = comparableDurations.length > 1 && mean(comparableDurations) ? clamp(100 - (standardDeviation(comparableDurations) / (mean(comparableDurations) ?? 1)) * 100) : 0;
-  const frequencyScore = clamp((events.length / Math.max(elapsedDays, 1 / 24)) * 12.5);
-  const amplitudeScore = clamp(((mean(amplitudes) ?? 0) / threshold) * 50);
-  const trendPenalty = clamp(Math.max(0, Math.abs(drift) - threshold) * 200);
+  const upCrossings = events.filter((event) => event.direction === 'up').length;
+  const downCrossings = events.filter((event) => event.direction === 'down').length;
+  const directionBalance = events.length ? Math.min(upCrossings, downCrossings) * 2 / events.length : 0;
+  // A grid bot needs repeatable movement in both directions. Saturate frequency
+  // at three balanced events/day so hyperactive noise cannot overwhelm every
+  // other input.
+  const balancedEventsPerDay = events.length / Math.max(elapsedDays, 1 / 24) * directionBalance;
+  const frequencyScore = clamp(balancedEventsPerDay / 3 * 100);
+  // Merely touching the configured threshold earns modest credit. Moves around
+  // twice the threshold earn most of the amplitude score, while extreme outliers
+  // are capped instead of dominating the ranking.
+  const amplitudeScore = clamp(30 + (((mean(amplitudes) ?? 0) / threshold) - 1) * 60);
+  const medianTraversalHours = (distribution(traversalDurations).median ?? Number.POSITIVE_INFINITY) / 3600;
+  // Fast moves are more useful to a practical bot. One hour or less receives
+  // full credit; the score then decays logarithmically to zero near 32 hours.
+  const speedScore = Number.isFinite(medianTraversalHours)
+    ? clamp(100 - Math.max(0, Math.log2(Math.max(1, medianTraversalHours))) * 20)
+    : 0;
+  const repeatScore = clamp(events.filter((event) => event.roundTripId !== null).length / 12 * 100);
+  // Strong drift remains a risk, but it no longer erases dozens of legitimate
+  // completed swings. Execution and contract failures remain separate hard fails.
+  const trendPenalty = clamp((Math.abs(drift) - 0.25) / 0.75 * 15, 0, 15);
   const suitability = clamp(
-    frequencyScore * 0.3 + regularity * 0.2 + amplitudeScore * 0.2
-    + qualityResult.coveragePct * 0.2 + dominantRangePct(relevant) * 0.1 - trendPenalty
+    frequencyScore * 0.25 + amplitudeScore * 0.25 + speedScore * 0.2
+    + repeatScore * 0.15 + qualityResult.coveragePct * 0.1
+    + directionBalance * 100 * 0.05 - trendPenalty
   );
   return {
     threshold,
     horizon,
-    upCrossings: events.filter((event) => event.direction === 'up').length,
-    downCrossings: events.filter((event) => event.direction === 'down').length,
+    upCrossings,
+    downCrossings,
     completedRoundTrips: events.filter((event) => event.roundTripId !== null).length,
     eventsPerDay: events.length / Math.max(elapsedDays, 1 / 24),
     timeSinceLastEventSeconds: events.length ? (now - Date.parse(events.at(-1)!.endAt)) / 1000 : null,

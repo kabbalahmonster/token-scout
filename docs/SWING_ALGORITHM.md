@@ -1,4 +1,4 @@
-# Swing algorithm 1.0.0
+# Swing algorithm 2.0.0
 
 For each configured threshold and horizon, snapshots are sorted by ingest time
 and divided wherever the gap exceeds three expected polls. An event cannot
@@ -28,6 +28,14 @@ Prices enter `Decimal` before arithmetic. JavaScript `number` is only used for
 bounded ratios and displayed statistics. This avoids integer/token-unit loss
 while keeping outputs serializable.
 
-Suitability combines event frequency (30%), duration regularity (20%), relative
-amplitude (20%), history coverage (20%), dominant range time (10%), and a trend
-penalty. It is descriptive—not a forecast.
+Suitability is tuned for repeated real-world bot opportunities. It combines
+balanced two-way event frequency (25%), amplitude above the configured threshold
+(25%), local-extreme-to-threshold speed (20%), completed round-trip repetition
+(15%), history coverage (10%), and up/down balance (5%). Frequency saturates at
+three balanced events per day, amplitude and repetition are capped, and traversal
+speed decays logarithmically after one hour. This prevents one noisy outlier from
+dominating the rating.
+
+Net drift above 25% receives a bounded penalty of at most 15 points. Strong drift
+therefore remains visible without erasing dozens of genuine completed swings.
+Suitability is descriptive—not a forecast.

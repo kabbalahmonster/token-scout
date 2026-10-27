@@ -2,7 +2,10 @@ import { Decimal } from 'decimal.js';
 import { SCORE_ALGORITHM_VERSION, type RiskFlag, type ScoreComponent, type ScoreInput, type ScoreResult } from './types.js';
 import { clamp } from './statistics.js';
 
-const WEIGHTS = { liquidity: 25, route: 20, swing: 20, activity: 15, stability: 10, contract: 10 } as const;
+// Version 2 ranks candidates for practical repeated-swing botting. Market
+// behaviour and maturity lead; execution and contract evidence remain explicit
+// guardrails instead of drowning out the opportunity signal.
+const WEIGHTS = { liquidity: 15, route: 10, swing: 40, activity: 15, stability: 15, contract: 5 } as const;
 
 function decimal(value: string | null | undefined): Decimal | null {
   try { return value === null || value === undefined ? null : new Decimal(value); } catch { return null; }
@@ -32,7 +35,7 @@ export function scoreCandidate(input: ScoreInput): ScoreResult {
     liquidityPoints = clamp((baseline - impactPenalty) / 100 * WEIGHTS.liquidity, 0, WEIGHTS.liquidity);
     if (planned && liquidity.lt(planned.mul(10))) hardFails.push('insufficient_planned_size_liquidity');
   }
-  components.push({ key: 'liquidity', weight: WEIGHTS.liquidity, points: liquidityPoints, raw: { liquidityUsd: latest?.liquidityUsd ?? null, plannedPrincipalUsd: input.plannedPrincipalUsd ?? null }, source: latest?.source ?? 'unavailable', observedAt: latest?.sourceTime ?? latest?.ingestedAt ?? null, explanation: 'Rewards deeper USD liquidity and penalizes planned capital that is large relative to the pool.' });
+  components.push({ key: 'liquidity', weight: WEIGHTS.liquidity, points: liquidityPoints, raw: { liquidityUsd: latest?.liquidityUsd ?? null, plannedPrincipalUsd: input.plannedPrincipalUsd ?? null }, source: latest?.source ?? 'unavailable', observedAt: latest?.sourceTime ?? latest?.ingestedAt ?? null, explanation: 'Rewards usable USD depth and penalizes planned capital that is large relative to the pool; depth supports execution but does not define swing opportunity.' });
 
   let routePoints = 0;
   if (!input.route || ['not_attempted', 'not_configured', 'quote_failed', 'timed_out', 'stale'].includes(input.route.state)) {
@@ -45,13 +48,13 @@ export function scoreCandidate(input: ScoreInput): ScoreResult {
   } else if (input.route.state === 'no_route_or_liquidity') {
     if (input.route.buy?.state === 'available' && input.route.sell?.state === 'no_route_or_liquidity') hardFails.push('attempted_buy_but_no_sell_route');
   }
-  components.push({ key: 'route', weight: WEIGHTS.route, points: routePoints, raw: { state: input.route?.state ?? 'not_attempted', recoveryPct: input.route?.recoveryPct ?? null }, source: input.route?.buy?.provider ?? 'unavailable', observedAt: input.route?.buy?.quotedAt ?? null, explanation: 'Uses independent read-only buy and sell quotes; missing quote access lowers confidence, not safety.' });
+  components.push({ key: 'route', weight: WEIGHTS.route, points: routePoints, raw: { state: input.route?.state ?? 'not_attempted', recoveryPct: input.route?.recoveryPct ?? null }, source: input.route?.buy?.provider ?? 'unavailable', observedAt: input.route?.buy?.quotedAt ?? null, explanation: 'Uses independent read-only buy and sell quotes. A confirmed route is required for PASS; missing access lowers confidence without distorting market-opportunity ranking.' });
 
   const preferredSwing = input.swings?.results.find((result) => result.threshold === 0.05 && result.horizon === '7d')
     ?? input.swings?.results.filter((result) => result.threshold === 0.05).sort((a, b) => b.quality.sampleCount - a.quality.sampleCount)[0];
   const swingPoints = preferredSwing ? preferredSwing.suitability / 100 * WEIGHTS.swing : 0;
   if (!preferredSwing || preferredSwing.quality.coveragePct < 50) materialUnknowns.push('insufficient_swing_history');
-  components.push({ key: 'swing', weight: WEIGHTS.swing, points: swingPoints, raw: { suitability: preferredSwing?.suitability ?? null, coveragePct: preferredSwing?.quality.coveragePct ?? null, roundTrips: preferredSwing?.completedRoundTrips ?? null }, source: 'retained_snapshots', observedAt: input.swings?.generatedAt ?? null, explanation: 'Measures observed 5% reversal frequency, regularity, coverage, amplitude and trend penalty.' });
+  components.push({ key: 'swing', weight: WEIGHTS.swing, points: swingPoints, raw: { suitability: preferredSwing?.suitability ?? null, coveragePct: preferredSwing?.quality.coveragePct ?? null, roundTrips: preferredSwing?.completedRoundTrips ?? null, eventsPerDay: preferredSwing?.eventsPerDay ?? null, meanAmplitude: preferredSwing?.amplitude.mean ?? null, medianTraversalSeconds: preferredSwing?.eventTraversalDurationSeconds.median ?? null }, source: 'retained_snapshots', observedAt: input.swings?.generatedAt ?? null, explanation: 'Primary opportunity signal: rewards frequent two-way 5% moves, larger amplitude, fast completion, repeated round trips and trustworthy history.' });
 
   const volume = decimal(latest?.volume24hUsd);
   let activityPoints = 0;
@@ -61,17 +64,21 @@ export function scoreCandidate(input: ScoreInput): ScoreResult {
     const balance = latest?.buys24h !== null && latest?.sells24h !== null && latest?.buys24h !== undefined && latest?.sells24h !== undefined
       ? Math.min(latest.buys24h, latest.sells24h) / Math.max(1, latest.buys24h + latest.sells24h) * 2
       : 0.5;
-    activityPoints = clamp(Math.min(1, ratio / 2) * balance * WEIGHTS.activity, 0, WEIGHTS.activity);
+    const turnover = clamp(Math.log10(1 + Math.max(0, ratio) * 9) / Math.log10(19));
+    activityPoints = clamp(turnover * (0.4 + balance * 0.6) * WEIGHTS.activity, 0, WEIGHTS.activity);
   }
   components.push({ key: 'activity', weight: WEIGHTS.activity, points: activityPoints, raw: { volume24hUsd: latest?.volume24hUsd ?? null, liquidityUsd: latest?.liquidityUsd ?? null, buys24h: latest?.buys24h ?? null, sells24h: latest?.sells24h ?? null }, source: latest?.source ?? 'unavailable', observedAt: latest?.sourceTime ?? latest?.ingestedAt ?? null, explanation: 'Rewards persistent turnover relative to liquidity and balanced two-way transaction activity.' });
 
   let stabilityPoints = 0;
+  let pairAgeDays: number | null = null;
   if (!latest?.pairCreatedAt) materialUnknowns.push('pair_age_unknown');
   else {
-    const ageDays = Math.max(0, (Date.parse(now) - Date.parse(latest.pairCreatedAt)) / 86_400_000);
-    stabilityPoints = clamp(ageDays / 30 * WEIGHTS.stability, 0, WEIGHTS.stability);
+    pairAgeDays = Math.max(0, (Date.parse(now) - Date.parse(latest.pairCreatedAt)) / 86_400_000);
+    if (pairAgeDays < 1) stabilityPoints = 0;
+    else if (pairAgeDays < 7) stabilityPoints = (pairAgeDays - 1) / 6 * 5;
+    else stabilityPoints = 10 + clamp((pairAgeDays - 7) / 23 * 5, 0, 5);
   }
-  components.push({ key: 'stability', weight: WEIGHTS.stability, points: stabilityPoints, raw: { pairCreatedAt: latest?.pairCreatedAt ?? null }, source: latest?.source ?? 'unavailable', observedAt: latest?.sourceTime ?? latest?.ingestedAt ?? null, explanation: 'Older continuously observed markets receive more credit, capped after thirty days.' });
+  components.push({ key: 'stability', weight: WEIGHTS.stability, points: stabilityPoints, raw: { pairCreatedAt: latest?.pairCreatedAt ?? null, pairAgeDays }, source: latest?.source ?? 'unavailable', observedAt: latest?.sourceTime ?? latest?.ingestedAt ?? null, explanation: 'Strongly prefers markets at least seven days old, then adds modest maturity credit through day thirty.' });
 
   const riskPoints = contractPoints(input.risks);
   if (input.risks.length === 0 || input.risks.some((flag) => flag.state === 'unknown')) materialUnknowns.push('contract_posture_incomplete');
@@ -84,6 +91,14 @@ export function scoreCandidate(input: ScoreInput): ScoreResult {
   const confidence = Math.round(clamp(knownComponents * 0.45 + historyCoverage * 0.35 + routeConfidence * 0.2));
   const uniqueFails = [...new Set(hardFails)];
   const uniqueUnknowns = [...new Set(materialUnknowns)];
-  const verdict = uniqueFails.length > 0 || score < 50 ? 'REJECT' : score >= 75 && uniqueUnknowns.length === 0 ? 'PASS' : 'CAUTION';
+  const botReadyEvidence = pairAgeDays !== null && pairAgeDays >= 7
+    && preferredSwing !== undefined && preferredSwing.quality.coveragePct >= 50
+    && preferredSwing.completedRoundTrips >= 2 && preferredSwing.suitability >= 60
+    && input.route?.state === 'available';
+  const verdict = uniqueFails.length > 0 || score < 40
+    ? 'REJECT'
+    : score >= 70 && botReadyEvidence
+      ? 'PASS'
+      : 'CAUTION';
   return { version: SCORE_ALGORITHM_VERSION, score, confidence, verdict, hardFails: uniqueFails, materialUnknowns: uniqueUnknowns, components, calculatedAt: now };
 }

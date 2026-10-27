@@ -53,4 +53,15 @@ describe('swing engine', () => {
     expect(result.events.length).toBeGreaterThan(1);
     expect(result.quality.largestGapSeconds).toBe(3600);
   });
+
+  it('ranks large rapid repeated swings above slow threshold touches', () => {
+    const fast = Array.from({ length: 72 }, (_, index) => snapshot(index + 1, index * 60, index % 2 === 0 ? '1' : '1.12'));
+    const slow = Array.from({ length: 14 }, (_, index) => snapshot(index + 100, index * 12 * 60, index % 2 === 0 ? '1' : '1.055'));
+    const fastResult = calculateSwingStudy(fast, { thresholds: [0.05], horizonsSeconds: { '7d': 604_800 }, expectedPollSeconds: 3600 }, new Date(base + 71 * 60 * 60_000).toISOString()).results[0]!;
+    const slowResult = calculateSwingStudy(slow, { thresholds: [0.05], horizonsSeconds: { '7d': 604_800 }, expectedPollSeconds: 43_200 }, new Date(base + 13 * 12 * 60 * 60_000).toISOString()).results[0]!;
+    expect(fastResult.completedRoundTrips).toBeGreaterThan(slowResult.completedRoundTrips);
+    expect(fastResult.amplitude.mean).toBeGreaterThan(slowResult.amplitude.mean!);
+    expect(fastResult.eventTraversalDurationSeconds.median).toBeLessThan(slowResult.eventTraversalDurationSeconds.median!);
+    expect(fastResult.suitability).toBeGreaterThan(slowResult.suitability);
+  });
 });

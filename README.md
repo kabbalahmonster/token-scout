@@ -237,8 +237,8 @@ For thresholds ±2%, ±5%, ±10%, ±20% (configurable) and horizons 1h, 6h, 24h,
 - amplitude and excursion distribution, maximum drawdown, adverse excursion
   before recovery, and a log-return volatility proxy;
 - trend/drift, range compression/expansion, and time inside dominant range;
-- swing suitability based on event frequency, regularity, amplitude, history
-  coverage, liquidity stability, and trend penalty.
+- swing suitability based on balanced two-way frequency, amplitude, traversal
+  speed, repeated round trips, history coverage, and a bounded trend penalty.
 
 Definitions must prevent hindsight cosplay: a down swing starts after a local
 high and completes only at the chosen fall; up swings are symmetric; a round
@@ -290,19 +290,20 @@ raw input, weight, cap/deduction, source, timestamp, explanation, and tests.
 
 | Component | Default weight | Evidence |
 | --- | ---: | --- |
-| Liquidity/planned-size impact | 25 | USD liquidity, depth proxy, capital/liquidity ratio |
-| Executable route quality | 20 | buy/sell availability, recovery, redundancy |
-| Swing suitability | 20 | frequency, regularity, amplitude, coverage, drift |
+| Liquidity/planned-size impact | 15 | USD liquidity, depth proxy, capital/liquidity ratio |
+| Executable route quality | 10 | buy/sell availability, recovery, redundancy |
+| Swing suitability | 40 | balanced frequency, amplitude, traversal speed, repeated round trips, coverage |
 | Volume/activity quality | 15 | volume/liquidity, buy/sell balance, persistence |
-| Age/market stability | 10 | pair age, liquidity changes, continuity |
-| Contract-risk posture | 10 | flags, ownership/proxy uncertainty, code stability |
+| Age/market stability | 15 | pair age with a strong preference at seven days, continuity |
+| Contract-risk posture | 5 | flags, ownership/proxy uncertainty, code stability |
 
-Default verdicts: `PASS` (75+ with no hard fail), `CAUTION` (50–74 or material
-unknown), `REJECT` (<50 or hard fail). Hard fails include attempted/no sell
-route, severe confirmed round-trip loss, insufficient liquidity for planned
-size, and defined high-confidence contract hazards. Confidence is separate:
-missing history, stale data, and unavailable routes must lower it rather than
-turning into a confident low-risk answer.
+Default verdicts: `PASS` (70+ plus 60+ swing suitability, pair age 7+ days,
+50%+ seven-day coverage, two completed round trips, an available route, and no hard fail), `CAUTION`
+(40+ but not fully bot-ready), and `REJECT` (<40 or hard fail). Hard fails include
+attempted/no sell route, severe confirmed round-trip loss, insufficient liquidity
+for planned size, and defined high-confidence contract hazards. Confidence stays
+separate so informational unknowns remain visible without scrambling opportunity
+ranking or automatically vetoing a strong established market.
 
 ### Recommendation/export
 

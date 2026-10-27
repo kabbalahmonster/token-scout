@@ -57,6 +57,19 @@ docker compose up -d --build
 For Compose volume backups, stop worker/API briefly or use SQLite `.backup`
 inside the API image. Never copy a live database file without WAL coordination.
 
+After a scoring-algorithm upgrade, preview recalculation against retained local
+evidence before changing the ranked board. The default command is read-only;
+`--apply` stores a new versioned swing study and score for every candidate.
+
+```bash
+pnpm rescore
+pnpm rescore -- --apply
+```
+
+Back up the database before `--apply`. Rescoring makes no provider calls and
+does not reinterpret or delete old score history, so rollback remains an app
+revision rollback plus selection of the earlier retained score records if needed.
+
 Restore is intentionally gated and requires stopped processes:
 
 ```bash
