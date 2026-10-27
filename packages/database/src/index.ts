@@ -58,7 +58,7 @@ function snapshotFromRow(row: any): MarketSnapshot {
     ingestedAt: row.ingested_at, source: row.source, fingerprint: row.fingerprint };
 }
 
-export type CandidateSort = 'token' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
+export type CandidateSort = 'token' | 'score' | 'verdict' | 'state' | 'swing' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
 export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 
 export class Repositories {
@@ -119,6 +119,7 @@ export class Repositories {
       if (filters.sort === 'state') return candidate.state;
       if (filters.sort === 'swing') return candidate.swingScore ?? null;
       if (filters.sort === 'liquidity') return candidate.latestSnapshot?.liquidityUsd === null || candidate.latestSnapshot?.liquidityUsd === undefined ? null : Number(candidate.latestSnapshot.liquidityUsd);
+      if (filters.sort === 'market_cap') return candidate.latestSnapshot?.marketCapUsd === null || candidate.latestSnapshot?.marketCapUsd === undefined ? null : Number(candidate.latestSnapshot.marketCapUsd);
       if (filters.sort === 'volume') return candidate.latestSnapshot?.volume24hUsd === null || candidate.latestSnapshot?.volume24hUsd === undefined ? null : Number(candidate.latestSnapshot.volume24hUsd);
       if (filters.sort === 'volume_liquidity') return candidate.latestSnapshot?.volume24hUsd === null || candidate.latestSnapshot?.volume24hUsd === undefined || candidate.latestSnapshot.liquidityUsd === null || candidate.latestSnapshot.liquidityUsd === undefined ? null : Number(candidate.latestSnapshot.volume24hUsd) / Math.max(Number(candidate.latestSnapshot.liquidityUsd), 1);
       if (filters.sort === 'age') return candidate.latestSnapshot?.pairCreatedAt ? Date.now() - Date.parse(candidate.latestSnapshot.pairCreatedAt) : null;

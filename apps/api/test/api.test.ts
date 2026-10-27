@@ -69,7 +69,7 @@ describe('API integration', () => {
 
   it('accepts table sort columns and rejects unknown ones', async () => {
     database = openDatabase(':memory:'); app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
-    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=token&direction=asc' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=market_cap&direction=desc' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?sort=nope' })).statusCode).toBe(400);
   });
 
