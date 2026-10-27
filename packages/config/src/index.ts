@@ -10,6 +10,10 @@ const configSchema = z.object({
   DATABASE_PATH: z.string().min(1).default('./data/doomscout.db'),
   AUTH_TOKEN: z.string().default(''),
   PUBLIC_READ: booleanString.default(false),
+  // Enable only when the API is reachable exclusively through a trusted
+  // reverse proxy. This lets per-client controls use X-Forwarded-For instead
+  // of collapsing every proxied visitor into the proxy's loopback address.
+  TRUST_PROXY: booleanString.default(false),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   CHAIN_ID: z.coerce.number().int().positive().default(4663),
   ROBINHOOD_RPC_URL: z.string().url().default('https://rpc.mainnet.chain.robinhood.com'),

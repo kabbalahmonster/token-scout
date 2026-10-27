@@ -30,6 +30,11 @@ research records are intentional. Production mutations always require the
 token, including behind a loopback reverse proxy. Health and readiness remain
 unauthenticated for orchestration.
 
+For a non-Compose reverse-proxy deployment, set `TRUST_PROXY=true` only while
+the API remains loopback/private-network bound. Never combine it with a
+directly internet-accessible API port, because clients could forge forwarding
+headers and evade per-IP rate limits.
+
 ## Upgrade and rollback
 
 Back up first, fetch a reviewed revision, then rebuild. A rollback is a checkout

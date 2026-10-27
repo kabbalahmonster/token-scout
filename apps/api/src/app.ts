@@ -28,7 +28,7 @@ function csvEscape(value: unknown): string {
 }
 
 export async function buildApp(config: AppConfig, database: OpenDatabase): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: config.LOG_LEVEL, redact: ['req.headers.authorization', 'req.headers.cookie'] }, trustProxy: false, bodyLimit: 1_000_000 });
+  const app = Fastify({ logger: { level: config.LOG_LEVEL, redact: ['req.headers.authorization', 'req.headers.cookie'] }, trustProxy: config.TRUST_PROXY, bodyLimit: 1_000_000 });
   await app.register(cors, { origin: config.NODE_ENV === 'development' ? [/^http:\/\/(127\.0\.0\.1|localhost):\d+$/] : false });
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(rateLimit, { max: 120, timeWindow: '1 minute', keyGenerator: (request) => request.ip });
@@ -123,7 +123,12 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
 
   app.get('/api/v1/events', { schema: { tags: ['operations'], querystring: { type: 'object', properties: { lastEventId: { type: 'integer', minimum: 0 } } } } }, async (request, reply) => {
     const query = request.query as { lastEventId?: number };
-    let lastId = Number(request.headers['last-event-id'] ?? query.lastEventId ?? 0);
+    const suppliedCursor = request.headers['last-event-id'] ?? query.lastEventId;
+    // A new browser session wants live updates, not a replay of every event
+    // retained since installation. Replaying the backlog caused one cache
+    // invalidation (and HTTP request) per historical score event. Browser
+    // reconnects still supply Last-Event-ID and therefore resume losslessly.
+    let lastId = suppliedCursor === undefined ? await database.repositories.latestEventId() : Number(suppliedCursor);
     reply.hijack();
     reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const send = async () => { const events = await database.repositories.eventsAfter(lastId); for (const event of events) { lastId = event.id; reply.raw.write(`id: ${event.id}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event.payload)}\n\n`); } reply.raw.write(`: keepalive ${Date.now()}\n\n`); };

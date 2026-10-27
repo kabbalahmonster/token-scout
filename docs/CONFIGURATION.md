@@ -17,3 +17,9 @@ Enter the bearer token in the persistent top-bar control (or Operations) to
 unlock reads and mutations; direct API exposure is never required.
 `/api/v1/health` and `/api/v1/ready` are always unauthenticated and contain no
 research records.
+
+`TRUST_PROXY` defaults to `false`. Set it to `true` only when the API is
+reachable exclusively through a trusted reverse proxy; this makes client-IP
+rate limits use the forwarded visitor address. The bundled Compose topology
+enables it because the API port is private and all requests pass through its
+web proxy.

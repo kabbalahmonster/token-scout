@@ -73,4 +73,12 @@ describe('API integration', () => {
     for (let index = 0; index < 121; index += 1) response = await app.inject({ method: 'GET', url: '/api/v1/health', remoteAddress: '192.0.2.10' });
     expect(response?.statusCode).toBe(429);
   });
+
+  it('uses forwarded client addresses only when the trusted proxy setting is enabled', async () => {
+    database = openDatabase(':memory:'); app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', LOG_LEVEL: 'silent', TRUST_PROXY: 'true' }), database);
+    let response;
+    for (let index = 0; index < 121; index += 1) response = await app.inject({ method: 'GET', url: '/api/v1/health', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '192.0.2.10' } });
+    expect(response?.statusCode).toBe(429);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/health', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '192.0.2.11' } })).statusCode).toBe(200);
+  });
 });

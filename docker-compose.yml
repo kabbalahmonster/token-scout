@@ -10,6 +10,8 @@ services:
       DATABASE_PATH: /data/doomscout.db
       AUTH_TOKEN: ${AUTH_TOKEN:?Set a random AUTH_TOKEN of at least 32 characters}
       PUBLIC_READ: ${PUBLIC_READ:-false}
+      # The API is exposed only through the bundled web proxy.
+      TRUST_PROXY: "true"
       ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
       ROBINHOOD_BLOCKSCOUT_URL: ${ROBINHOOD_BLOCKSCOUT_URL:-https://robinhoodchain.blockscout.com}
       DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}

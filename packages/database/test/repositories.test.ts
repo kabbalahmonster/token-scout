@@ -23,6 +23,15 @@ describe('repositories', () => {
     expect(await database.repositories.claimJob('test')).toBeNull();
   });
 
+  it('reports the current event tail for new live-stream subscribers', async () => {
+    database = openDatabase(':memory:');
+    expect(await database.repositories.latestEventId()).toBe(0);
+    await database.repositories.emit('score.updated', { score: 42 });
+    const tail = await database.repositories.latestEventId();
+    expect(tail).toBeGreaterThan(0);
+    expect(await database.repositories.eventsAfter(tail)).toEqual([]);
+  });
+
   it('allows a recurring dedupe key after completion without colliding', async () => {
     database = openDatabase(':memory:');
     expect(await database.repositories.enqueue('discover', 'same-window', {})).toBeTypeOf('string');
