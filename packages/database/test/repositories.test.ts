@@ -32,6 +32,26 @@ describe('repositories', () => {
     expect(await database.repositories.eventsAfter(tail)).toEqual([]);
   });
 
+  it('hides retired explorer-verification evidence from repository results', async () => {
+    database = openDatabase(':memory:');
+    const address = '0x1111111111111111111111111111111111111111' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address });
+    await database.repositories.saveContractScan({
+      chainId: 4663,
+      address,
+      version: 'fixture',
+      codeHash: null,
+      scannedAt: new Date().toISOString(),
+      metadata: { symbol: null, name: null, decimals: null, totalSupply: null },
+      flags: [
+        { code: 'source_verification', label: 'retired', state: 'unknown', severity: 'info', confidence: 0, explanation: 'retired', evidence: [] },
+        { code: 'owner_status', label: 'Owner status', state: 'unknown', severity: 'info', confidence: 0, explanation: 'unknown', evidence: [] }
+      ]
+    });
+    expect((await database.repositories.getCandidate(4663, address))?.flags.map((flag) => flag.code)).toEqual(['owner_status']);
+    expect((await database.repositories.latestContractScan(4663, address))?.flags.map((flag) => flag.code)).toEqual(['owner_status']);
+  });
+
   it('sorts candidates by table columns in either direction', async () => {
     database = openDatabase(':memory:');
     const alpha = '0x1111111111111111111111111111111111111111' as const;
