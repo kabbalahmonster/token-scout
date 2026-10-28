@@ -1,5 +1,5 @@
 import { Decimal } from 'decimal.js';
-import { BlockscoutAdapter, CoinGeckoAdapter, DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, SushiQuoteAdapter, type GeckoDiscoveryLead, type ResilienceOptions } from '@doomscout/adapters';
+import { CoinGeckoAdapter, DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, SushiQuoteAdapter, type GeckoDiscoveryLead, type ResilienceOptions } from '@doomscout/adapters';
 import type { AppConfig } from '@doomscout/config';
 import type { Repositories } from '@doomscout/database';
 import { calculateSwingStudy, normalizeAddress, scoreCandidate, type Address, type RouteAssessment } from '@doomscout/domain';
@@ -8,7 +8,6 @@ export class AssessmentService {
   readonly dex: DexScreenerAdapter;
   readonly geckoTerminal: GeckoTerminalAdapter;
   readonly rpc: JsonRpcAdapter;
-  readonly blockscout: BlockscoutAdapter;
   readonly coinGecko: CoinGeckoAdapter;
   readonly sushi: SushiQuoteAdapter;
 
@@ -17,13 +16,12 @@ export class AssessmentService {
     this.dex = new DexScreenerAdapter(config.DEXSCREENER_API_URL, resilience);
     this.geckoTerminal = new GeckoTerminalAdapter(config.GECKOTERMINAL_API_URL, resilience);
     this.rpc = new JsonRpcAdapter(config.ROBINHOOD_RPC_URL, resilience);
-    this.blockscout = new BlockscoutAdapter(config.ROBINHOOD_BLOCKSCOUT_URL, resilience);
     this.coinGecko = new CoinGeckoAdapter(config.COINGECKO_API_URL, resilience);
     this.sushi = new SushiQuoteAdapter(config.SUSHI_QUOTE_URL, resilience);
   }
 
   async persistStatuses(): Promise<void> {
-    const statuses = [...this.dex.statuses(), this.geckoTerminal.status(), this.rpc.status(), this.blockscout.status(), this.coinGecko.status(), this.sushi.status()];
+    const statuses = [...this.dex.statuses(), this.geckoTerminal.status(), this.rpc.status(), this.coinGecko.status(), this.sushi.status()];
     await Promise.all(statuses.map((status) => this.repositories.setSourceStatus(status)));
   }
 
@@ -92,8 +90,7 @@ export class AssessmentService {
         return;
       }
 
-      const [market, scan, explorer] = await Promise.all([this.dex.token(chainId, address), this.rpc.scanContract(chainId, address), this.blockscout.token(address)]);
-      scan.flags.push({ code: 'source_verification', label: 'Explorer source verification', state: explorer.verified === true ? 'not_detected' : 'unknown', severity: 'info', confidence: explorer.verified === true ? 90 : 0, explanation: explorer.verified === true ? 'Blockscout reported verification context. Verification does not make a contract safe.' : 'Verification was absent or unavailable; this is uncertainty, not evidence of danger or safety.', evidence: [{ source: 'blockscout', observedAt: scan.scannedAt, detail: explorer.verified === true ? 'verification reported' : 'verification not established' }] });
+      const [market, scan] = await Promise.all([this.dex.token(chainId, address), this.rpc.scanContract(chainId, address)]);
       await this.repositories.setCandidateMetadata(chainId, address, { symbol: market.token.symbol ?? scan.metadata.symbol, name: market.token.name ?? scan.metadata.name, decimals: scan.metadata.decimals, totalSupply: scan.metadata.totalSupply });
       await this.repositories.saveContractScan(scan);
 

@@ -13,7 +13,6 @@ services:
       # The API is exposed only through the bundled web proxy.
       TRUST_PROXY: "true"
       ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
-      ROBINHOOD_BLOCKSCOUT_URL: ${ROBINHOOD_BLOCKSCOUT_URL:-https://robinhoodchain.blockscout.com}
       DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}
       GECKOTERMINAL_API_URL: ${GECKOTERMINAL_API_URL:-https://api.geckoterminal.com/api/v2}
       COINGECKO_API_URL: ${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
@@ -38,7 +37,6 @@ services:
       HOST: 127.0.0.1
       DATABASE_PATH: /data/doomscout.db
       ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
-      ROBINHOOD_BLOCKSCOUT_URL: ${ROBINHOOD_BLOCKSCOUT_URL:-https://robinhoodchain.blockscout.com}
       DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}
       GECKOTERMINAL_API_URL: ${GECKOTERMINAL_API_URL:-https://api.geckoterminal.com/api/v2}
       COINGECKO_API_URL: ${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}

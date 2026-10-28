@@ -27,7 +27,7 @@ The repository now contains the working TypeScript MVP described below:
   recommendation drafts;
 - separate SQLite-backed worker with idempotent discovery, watched polling,
   assessment, retention, and alert jobs;
-- credential-free GeckoTerminal, DexScreener, Robinhood RPC, Blockscout,
+- credential-free GeckoTerminal, DexScreener, Robinhood RPC,
   CoinGecko, and Sushi adapters with source budgets, timeout/retry/cache/circuit
   state; GeckoTerminal supplies a broad top/new-pool universe and seven-day
   hourly OHLCV bootstrap rather than starting every swing study empty;
@@ -136,7 +136,7 @@ circuit breaker, status indicator, and explicit degraded state.
 | Broad pool discovery and initial history | GeckoTerminal public API | Scan paginated top/new Robinhood pools; retain hourly OHLCV as attributed immutable evidence. |
 | Pair cross-checks, prices, liquidity, volume, pair age | DexScreener public API | Treat profiles/pairs as untrusted leads; retain our own normalized history. |
 | Contract code, ERC-20 reads, logs, gas | Robinhood public JSON-RPC | Use a configurable tested RPC pool. |
-| Explorer and optional verification context | Robinhood Blockscout public explorer/API | Enrichment only; lack of verification is uncertainty, not safety evidence. |
+| Explorer links | Robinhood Blockscout website | Human review only; DoomScout does not call the Cloudflare-protected API. |
 | ETH/USD reference | CoinGecko free endpoint | Heavily cached; lack of USD conversion cannot block ETH-denominated analysis. |
 | Route feasibility | Free public quote adapters supported by the bot, initially Sushi | Optional and read-only; never pretend a quote is guaranteed execution. |
 
@@ -362,7 +362,7 @@ apps/
   worker/              discovery, polling, scoring, retention jobs
 packages/
   domain/              pure types and score/swing/recommendation algorithms
-  adapters/            RPC, DexScreener, Blockscout, CoinGecko, quote sources
+  adapters/            RPC, DexScreener, CoinGecko, quote sources
   database/            SQLite schema, migrations, repositories
   config/              validated typed configuration
 docs/

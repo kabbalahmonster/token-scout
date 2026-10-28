@@ -17,7 +17,6 @@ const configSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   CHAIN_ID: z.coerce.number().int().positive().default(4663),
   ROBINHOOD_RPC_URL: z.string().url().default('https://rpc.mainnet.chain.robinhood.com'),
-  ROBINHOOD_BLOCKSCOUT_URL: z.string().url().default('https://robinhoodchain.blockscout.com'),
   DEXSCREENER_API_URL: z.string().url().default('https://api.dexscreener.com'),
   GECKOTERMINAL_API_URL: z.string().url().default('https://api.geckoterminal.com/api/v2'),
   COINGECKO_API_URL: z.string().url().default('https://api.coingecko.com/api/v3'),

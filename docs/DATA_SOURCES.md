@@ -5,7 +5,6 @@
 | GeckoTerminal | paginated top/new/trending pool discovery and hourly OHLCV bootstrap | ≤6 rpm, shared queue | broad discovery/history is partial, stale, or unavailable |
 | DexScreener | latest profiles, top boosted discovery, pair cross-checks, price, liquidity, volume | discovery ≤50 rpm; pairs ≤240 rpm | boosts are promotional discovery signals, not quality evidence; pair evidence is stale or unavailable |
 | Robinhood RPC | code, storage, ERC-20 reads, gas | ≤240 rpm | contract facts are unknown |
-| Robinhood Blockscout | optional verification context | ≤50 rpm, 5-minute cache | verification context is unknown |
 | CoinGecko | ETH/USD reference | ≤20 rpm, 5-minute cache | analysis continues in ETH terms |
 | Sushi | read-only exact-input quote | ≤30 rpm | route is unverified, timed out, or failed |
 
