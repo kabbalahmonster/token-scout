@@ -47,7 +47,20 @@ const configSchema = z.object({
   SWING_MIN_SEPARATION_SECONDS: z.coerce.number().int().min(0).default(60),
   RAW_RETENTION_DAYS: z.coerce.number().int().min(1).default(7),
   CANDLE_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
-  HOURLY_RETENTION_DAYS: z.coerce.number().int().min(1).default(730)
+  HOURLY_RETENTION_DAYS: z.coerce.number().int().min(1).default(730),
+  // The existing market-history cleanup remains active regardless of this
+  // switch. Comprehensive housekeeping is explicit so older deployments do
+  // not begin expiring audit data merely by updating application code.
+  COMPREHENSIVE_RETENTION_ENABLED: booleanString.default(false),
+  CANDIDATE_ARCHIVE_DAYS: z.coerce.number().int().min(1).default(30),
+  ARCHIVED_CANDIDATE_RETENTION_DAYS: z.coerce.number().int().min(1).default(180),
+  DISCOVERY_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
+  COMPLETED_JOB_RETENTION_DAYS: z.coerce.number().int().min(1).default(7),
+  FAILED_JOB_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
+  ALERT_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
+  APP_EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).default(7),
+  ASSESSMENT_DETAIL_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
+  ASSESSMENT_DAILY_RETENTION_DAYS: z.coerce.number().int().min(1).default(730)
 });
 
 export type AppConfig = z.output<typeof configSchema>;
@@ -61,6 +74,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   }
   if (result.data.NODE_ENV === 'production' && result.data.AUTH_TOKEN.length < 32) {
     throw new Error('AUTH_TOKEN must contain at least 32 characters in production');
+  }
+  if (result.data.ARCHIVED_CANDIDATE_RETENTION_DAYS < result.data.CANDIDATE_ARCHIVE_DAYS) {
+    throw new Error('ARCHIVED_CANDIDATE_RETENTION_DAYS must be at least CANDIDATE_ARCHIVE_DAYS');
+  }
+  if (result.data.ASSESSMENT_DAILY_RETENTION_DAYS < result.data.ASSESSMENT_DETAIL_RETENTION_DAYS) {
+    throw new Error('ASSESSMENT_DAILY_RETENTION_DAYS must be at least ASSESSMENT_DETAIL_RETENTION_DAYS');
   }
   return result.data;
 }

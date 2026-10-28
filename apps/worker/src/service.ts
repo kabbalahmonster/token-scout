@@ -60,7 +60,7 @@ export class AssessmentService {
         await this.repositories.upsertPair({ chainId: this.config.CHAIN_ID, tokenAddress: lead.address, pairAddress: lead.poolAddress, dex: lead.dex, url: null, quoteTokenAddress: lead.quoteTokenAddress, createdAt: lead.createdAt, liquidityUsd: lead.liquidityUsd });
         await this.repositories.insertSnapshot(lead.snapshot, lead.raw);
         const candidate = await this.repositories.getCandidate(this.config.CHAIN_ID, lead.address);
-        if (candidate?.state === 'stale' && !candidate.assessmentError) {
+        if (candidate && ['stale', 'archived'].includes(candidate.state) && !candidate.assessmentError) {
           await this.repositories.setCandidateState(this.config.CHAIN_ID, lead.address, candidate.watched ? 'watched' : candidate.score === null ? 'collecting_history' : 'assessed');
         }
         await this.repositories.enqueueScheduled('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });

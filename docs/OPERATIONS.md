@@ -43,6 +43,30 @@ served assets. Build it with `pnpm build:hosted`. The `doomscout-web.service`
 preview process must serve `--outDir dist-hosted`. The generic Docker deployment
 continues to build and serve `apps/web/dist` at the domain root.
 
+## Housekeeping preview and activation
+
+Comprehensive retention is opt-in. Preview the exact result first; the command
+uses SQLite's online backup API and runs cleanup only against a temporary,
+transactionally consistent copy:
+
+```bash
+DATABASE_PATH=./data/doomscout.db pnpm housekeeping
+```
+
+Review every reported count, create a real database backup, then either enable
+`COMPREHENSIVE_RETENTION_ENABLED=true` for the daily worker job or perform one
+explicit cleanup:
+
+```bash
+DATABASE_PATH=./data/doomscout.db pnpm db:backup
+DATABASE_PATH=./data/doomscout.db pnpm housekeeping -- --apply
+```
+
+The apply form is destructive by design. It never removes watched/watchlisted
+candidates, queued/running jobs, or the latest score, swing study, contract
+scan, route assessment, or per-token alert kind. Restore the pre-apply backup
+and roll back the application revision if the configured policy was wrong.
+
 ## Upgrade and rollback
 
 Back up first, fetch a reviewed revision, then rebuild. A rollback is a checkout

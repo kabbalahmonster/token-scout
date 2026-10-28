@@ -13,6 +13,34 @@ and three new-pool pages. `DISCOVERY_MIN_LIQUIDITY_USD`,
 (168 hours by default, bounded to 24–720). Keep the page counts and provider
 budgets conservative on the key-free endpoint.
 
+## Retention and housekeeping
+
+Raw market snapshots, 5-minute aggregates, and hourly aggregates are always
+bounded by `RAW_RETENTION_DAYS` (7), `CANDLE_RETENTION_DAYS` (90), and
+`HOURLY_RETENTION_DAYS` (730). This is the legacy cleanup contract.
+
+`COMPREHENSIVE_RETENTION_ENABLED` defaults to `false` for backward-compatible
+upgrades. When explicitly enabled, the daily worker job also applies:
+
+- `CANDIDATE_ARCHIVE_DAYS=30`: archive candidates no longer seen in discovery,
+  snapshots, or pair updates. Watched/watchlisted candidates are never eligible.
+- `ARCHIVED_CANDIDATE_RETENTION_DAYS=180`: purge candidates that have remained
+  archived for this additional period, together with their dependent evidence.
+- `DISCOVERY_RETENTION_DAYS=30`, `APP_EVENT_RETENTION_DAYS=7`, and
+  `ALERT_RETENTION_DAYS=90`: expire operational logs. The newest alert for each
+  token/kind is preserved beyond its normal horizon.
+- `COMPLETED_JOB_RETENTION_DAYS=7` and `FAILED_JOB_RETENTION_DAYS=30`: expire
+  terminal queue records. Queued and running jobs are never deleted.
+- `ASSESSMENT_DETAIL_RETENTION_DAYS=30`: retain every score, swing study,
+  contract scan, and route assessment during the detailed window.
+- `ASSESSMENT_DAILY_RETENTION_DAYS=730`: compact older assessment history to
+  one record per token/day, then expire it after the long horizon. The newest
+  record in every assessment family remains preserved regardless of age.
+
+The long candidate retention must not be shorter than its archive window, and
+the daily assessment horizon must not be shorter than the detailed horizon;
+invalid combinations fail configuration validation.
+
 Amounts such as `PLANNED_BUDGET_WEI` are integer strings. Swing thresholds are
 fractions (`0.05` means 5%). Endpoint URLs may contain credentials for a user's
 optional provider but are redacted from startup logs; free public defaults are

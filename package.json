@@ -16,6 +16,7 @@
     "db:migrate": "corepack pnpm --filter @doomscout/database migrate",
     "db:backup": "tsx scripts/backup.ts",
     "db:restore": "tsx scripts/restore.ts",
+    "housekeeping": "tsx scripts/housekeeping.ts",
     "rescore": "tsx scripts/rescore.ts"
   },
   "devDependencies": {

@@ -32,7 +32,8 @@ The repository now contains the working TypeScript MVP described below:
   state; GeckoTerminal supplies a broad top/new-pool universe and seven-day
   hourly OHLCV bootstrap rather than starting every swing study empty;
 - SQLite WAL evidence storage with immutable raw snapshots, 5-minute and hourly
-  aggregates, versioned studies/scans/scores, migrations, backup, and restore;
+  aggregates, versioned studies/scans/scores, migrations, backup, restore, and
+  opt-in comprehensive housekeeping with an exact dry-run preview;
 - strict domain algorithms, fixture/unit/integration/E2E tests, Docker Compose,
   CI, and loopback-first Hetzner deployment examples.
 
@@ -215,6 +216,11 @@ ingest time, source identity, and raw-data fingerprint.
 - Use SQLite in WAL mode by default. Retain raw samples for 7 days, 5-minute
   candles for 90 days, and hourly aggregates for 2 years; all policies are
   configurable.
+- Comprehensive housekeeping is explicitly enabled and configurable: archive
+  unseen/unwatched candidates, eventually purge long-archived candidates,
+  expire discovery/job/alert/app-event logs, and compact old versioned
+  assessment history to daily evidence. Always preserve watched/watchlisted
+  candidates, active jobs, and the latest assessment records.
 - Store unavailable as `null`, not zero. UI and scoring must distinguish zero,
   unknown, stale, and failed.
 - Calculate history quality: sample count, coverage %, largest gap, sources,

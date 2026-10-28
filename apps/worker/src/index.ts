@@ -33,7 +33,27 @@ async function runJob(): Promise<boolean> {
   try {
     if (job.kind === 'discover') await service.discover();
     else if (job.kind === 'assess') await service.assess(Number(job.payload.chainId), String(job.payload.address));
-    else if (job.kind === 'retention') await database.repositories.retention(config.RAW_RETENTION_DAYS, config.CANDLE_RETENTION_DAYS, config.HOURLY_RETENTION_DAYS);
+    else if (job.kind === 'retention') {
+      if (config.COMPREHENSIVE_RETENTION_ENABLED) {
+        const report = await database.repositories.housekeeping({
+          rawDays: config.RAW_RETENTION_DAYS,
+          fiveMinuteDays: config.CANDLE_RETENTION_DAYS,
+          hourlyDays: config.HOURLY_RETENTION_DAYS,
+          candidateArchiveDays: config.CANDIDATE_ARCHIVE_DAYS,
+          archivedCandidateDays: config.ARCHIVED_CANDIDATE_RETENTION_DAYS,
+          discoveryDays: config.DISCOVERY_RETENTION_DAYS,
+          completedJobDays: config.COMPLETED_JOB_RETENTION_DAYS,
+          failedJobDays: config.FAILED_JOB_RETENTION_DAYS,
+          alertDays: config.ALERT_RETENTION_DAYS,
+          appEventDays: config.APP_EVENT_RETENTION_DAYS,
+          assessmentDetailDays: config.ASSESSMENT_DETAIL_RETENTION_DAYS,
+          assessmentDailyDays: config.ASSESSMENT_DAILY_RETENTION_DAYS
+        });
+        log('info', 'housekeeping.completed', { ...report });
+      } else {
+        await database.repositories.retention(config.RAW_RETENTION_DAYS, config.CANDLE_RETENTION_DAYS, config.HOURLY_RETENTION_DAYS);
+      }
+    }
     else throw new Error(`Unknown job kind: ${job.kind}`);
     await database.repositories.finishJob(job.id);
     log('info', 'job.completed', { id: job.id, kind: job.kind });

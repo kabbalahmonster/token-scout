@@ -115,4 +115,53 @@ describe('repositories', () => {
     expect(aggregate.high_price).toBe('1.1e-18');
     expect(aggregate.low_price).toBe('1e-18');
   });
+
+  it('bounds operational and assessment history while preserving watched candidates and latest evidence', async () => {
+    database = openDatabase(':memory:');
+    const now = new Date('2026-10-28T12:00:00.000Z');
+    const watched = '0x1111111111111111111111111111111111111111' as const;
+    const dormant = '0x2222222222222222222222222222222222222222' as const;
+    const expiredArchive = '0x3333333333333333333333333333333333333333' as const;
+    const active = '0x4444444444444444444444444444444444444444' as const;
+    for (const address of [watched, dormant, expiredArchive, active]) await database.repositories.upsertCandidate({ chainId: 4663, address });
+    await database.db.updateTable('candidates').set({ watched: 1, state: 'watched', discovered_at: '2024-01-01T00:00:00.000Z', updated_at: '2024-01-01T00:00:00.000Z' }).where('address', '=', watched).execute();
+    await database.db.updateTable('candidates').set({ discovered_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }).where('address', '=', dormant).execute();
+    await database.db.updateTable('candidates').set({ state: 'archived', discovered_at: '2025-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }).where('address', '=', expiredArchive).execute();
+    await database.db.updateTable('candidates').set({ discovered_at: '2025-01-01T00:00:00.000Z', updated_at: '2026-10-27T00:00:00.000Z' }).where('address', '=', active).execute();
+    await database.db.insertInto('discovery_records').values({ chain_id: 4663, token_address: active, source: 'fixture', source_id: null, source_time: null, ingested_at: '2026-10-27T00:00:00.000Z', outcome: 'accepted', error_code: null, fingerprint: 'recent-active' }).execute();
+    await database.db.insertInto('discovery_records').values({ chain_id: 4663, token_address: dormant, source: 'fixture', source_id: null, source_time: null, ingested_at: '2026-01-01T00:00:00.000Z', outcome: 'accepted', error_code: null, fingerprint: 'old-dormant' }).execute();
+
+    const score = (address: string, at: string, value: number) => database!.db.insertInto('score_history').values({ chain_id: 4663, token_address: address, score_version: 'fixture', calculated_at: at, score: value, confidence: 50, verdict: 'CAUTION', result_json: '{}' }).execute();
+    await score(watched, '2024-01-01T00:00:00.000Z', 1); // newest for this token survives every horizon
+    await score(active, '2026-08-20T01:00:00.000Z', 10);
+    await score(active, '2026-08-20T20:00:00.000Z', 20); // daily representative
+    await score(active, '2026-10-27T00:00:00.000Z', 30); // recent detail
+    await score(active, '2024-01-01T00:00:00.000Z', 5); // backdated insert must not displace the chronologically latest record
+    await database.db.insertInto('swing_studies').values({ chain_id: 4663, token_address: active, algorithm_version: 'fixture', generated_at: '2026-08-20T01:00:00.000Z', parameters_json: '{}', result_json: '{}' }).execute();
+    await database.db.insertInto('swing_studies').values({ chain_id: 4663, token_address: active, algorithm_version: 'fixture', generated_at: '2026-08-20T20:00:00.000Z', parameters_json: '{}', result_json: '{}' }).execute();
+
+    for (const [id, state, updatedAt] of [
+      ['completed-old', 'completed', '2026-01-01T00:00:00.000Z'],
+      ['failed-old', 'failed', '2026-01-01T00:00:00.000Z'],
+      ['queued-old', 'queued', '2026-01-01T00:00:00.000Z']
+    ] as const) await database.db.insertInto('jobs').values({ id, kind: 'fixture', dedupe_key: id, payload_json: '{}', state, run_after: updatedAt, attempts: 0, locked_at: null, locked_by: null, last_error: null, created_at: updatedAt, updated_at: updatedAt }).execute();
+    await database.db.insertInto('app_events').values({ event_type: 'old', payload_json: '{}', created_at: '2026-01-01T00:00:00.000Z' }).execute();
+    await database.db.insertInto('app_events').values({ event_type: 'recent', payload_json: '{}', created_at: '2026-10-27T00:00:00.000Z' }).execute();
+    await database.db.insertInto('alerts').values({ id: 'alert-oldest', chain_id: 4663, token_address: active, kind: 'fixture', severity: 'warning', message: 'old', evidence_json: '{}', created_at: '2026-01-01T00:00:00.000Z', read_at: null }).execute();
+    await database.db.insertInto('alerts').values({ id: 'alert-latest', chain_id: 4663, token_address: active, kind: 'fixture', severity: 'warning', message: 'latest', evidence_json: '{}', created_at: '2026-02-01T00:00:00.000Z', read_at: null }).execute();
+
+    const report = await database.repositories.housekeeping({ rawDays: 7, fiveMinuteDays: 90, hourlyDays: 730, candidateArchiveDays: 30, archivedCandidateDays: 180, discoveryDays: 30, completedJobDays: 7, failedJobDays: 30, alertDays: 90, appEventDays: 7, assessmentDetailDays: 30, assessmentDailyDays: 730 }, now);
+    expect(report.candidatesArchived).toBe(1);
+    expect(report.candidatesDeleted).toBe(1);
+    expect((await database.repositories.getCandidate(4663, watched))?.state).toBe('watched');
+    expect((await database.repositories.getCandidate(4663, dormant))?.state).toBe('archived');
+    expect(await database.repositories.getCandidate(4663, expiredArchive)).toBeNull();
+    expect((await database.repositories.getCandidate(4663, active))?.state).not.toBe('archived');
+    expect((await database.db.selectFrom('score_history').selectAll().where('token_address', '=', watched).execute())).toHaveLength(1);
+    expect((await database.db.selectFrom('score_history').selectAll().where('token_address', '=', active).execute()).map((row) => row.score)).toEqual([20, 30]);
+    expect(await database.db.selectFrom('swing_studies').selectAll().where('token_address', '=', active).execute()).toHaveLength(1);
+    expect((await database.db.selectFrom('jobs').select('id').execute()).map((row) => row.id)).toEqual(['queued-old']);
+    expect((await database.db.selectFrom('app_events').select('event_type').execute()).map((row) => row.event_type)).toEqual(['recent']);
+    expect((await database.db.selectFrom('alerts').select('id').execute()).map((row) => row.id)).toEqual(['alert-latest']);
+  });
 });

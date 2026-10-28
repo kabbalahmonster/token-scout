@@ -60,6 +60,23 @@ function snapshotFromRow(row: any): MarketSnapshot {
 
 export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'events_per_day' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
 export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; minPairAgeDays?: number; maxPairAgeDays?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
+export interface HousekeepingPolicy {
+  rawDays: number; fiveMinuteDays: number; hourlyDays: number;
+  candidateArchiveDays: number; archivedCandidateDays: number;
+  discoveryDays: number; completedJobDays: number; failedJobDays: number;
+  alertDays: number; appEventDays: number;
+  assessmentDetailDays: number; assessmentDailyDays: number;
+}
+export interface HousekeepingReport {
+  marketHistoryDeleted: number;
+  candidatesArchived: number;
+  candidatesDeleted: number;
+  discoveryDeleted: number;
+  jobsDeleted: number;
+  alertsDeleted: number;
+  appEventsDeleted: number;
+  assessmentHistoryDeleted: number;
+}
 
 export class Repositories {
   constructor(readonly db: Kysely<DatabaseSchema>) {}
@@ -291,6 +308,158 @@ export class Repositories {
       trx.deleteFrom('market_aggregates').where('resolution_seconds', '=', 3600).where('bucket_at', '<', hourlyCutoff).executeTakeFirst()
     ]));
     return Number(raw.numDeletedRows + fiveMinute.numDeletedRows + hourly.numDeletedRows);
+  }
+
+  /**
+   * Apply bounded storage policies without sacrificing live research state.
+   * Watched candidates and active jobs are never eligible. Versioned
+   * assessment families retain full recent detail, one daily record through
+   * the long horizon, and the newest record per candidate forever.
+   */
+  async housekeeping(policy: HousekeepingPolicy, now = new Date()): Promise<HousekeepingReport> {
+    const cutoff = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
+    const archiveCutoff = cutoff(policy.candidateArchiveDays);
+    const archivedCandidateCutoff = cutoff(policy.archivedCandidateDays);
+    const discoveryCutoff = cutoff(policy.discoveryDays);
+    const completedJobCutoff = cutoff(policy.completedJobDays);
+    const failedJobCutoff = cutoff(policy.failedJobDays);
+    const alertCutoff = cutoff(policy.alertDays);
+    const appEventCutoff = cutoff(policy.appEventDays);
+    const assessmentDetailCutoff = cutoff(policy.assessmentDetailDays);
+    const assessmentDailyCutoff = cutoff(policy.assessmentDailyDays);
+    const marketHistoryDeleted = await this.retention(policy.rawDays, policy.fiveMinuteDays, policy.hourlyDays);
+
+    return this.db.transaction().execute(async (trx) => {
+      const archived = await sql`
+        UPDATE candidates AS candidate
+        SET state = 'archived', updated_at = ${now.toISOString()}
+        WHERE candidate.watched = 0
+          AND candidate.state <> 'archived'
+          AND NOT EXISTS (
+            SELECT 1 FROM watchlist_items AS item
+            WHERE item.chain_id = candidate.chain_id AND item.token_address = candidate.address
+          )
+          AND COALESCE((
+            SELECT MAX(record.ingested_at) FROM discovery_records AS record
+            WHERE record.chain_id = candidate.chain_id AND record.token_address = candidate.address
+          ), candidate.discovered_at) < ${archiveCutoff}
+          AND COALESCE((
+            SELECT MAX(snapshot.ingested_at) FROM market_snapshots AS snapshot
+            WHERE snapshot.chain_id = candidate.chain_id AND snapshot.token_address = candidate.address
+          ), candidate.discovered_at) < ${archiveCutoff}
+          AND COALESCE((
+            SELECT MAX(pair.last_seen_at) FROM pairs AS pair
+            WHERE pair.chain_id = candidate.chain_id AND pair.token_address = candidate.address
+          ), candidate.discovered_at) < ${archiveCutoff}
+      `.execute(trx);
+
+      // Purging is a second, much longer phase after archival. Every dependent
+      // evidence table without a foreign-key cascade is cleared explicitly.
+      const purgePredicate = sql`EXISTS (
+        SELECT 1 FROM candidates AS candidate
+        WHERE candidate.chain_id = target.chain_id
+          AND candidate.address = target.token_address
+          AND candidate.state = 'archived'
+          AND candidate.watched = 0
+          AND candidate.updated_at < ${archivedCandidateCutoff}
+          AND NOT EXISTS (
+            SELECT 1 FROM watchlist_items AS item
+            WHERE item.chain_id = candidate.chain_id AND item.token_address = candidate.address
+          )
+      )`;
+      await sql`DELETE FROM swing_studies AS target WHERE ${purgePredicate}`.execute(trx);
+      await sql`DELETE FROM contract_scans AS target WHERE ${purgePredicate}`.execute(trx);
+      await sql`DELETE FROM route_assessments AS target WHERE ${purgePredicate}`.execute(trx);
+      await sql`DELETE FROM score_history AS target WHERE ${purgePredicate}`.execute(trx);
+      await sql`DELETE FROM alerts AS target WHERE ${purgePredicate}`.execute(trx);
+      await sql`DELETE FROM discovery_records AS target WHERE EXISTS (
+        SELECT 1 FROM candidates AS candidate
+        WHERE candidate.chain_id = target.chain_id
+          AND candidate.address = target.token_address
+          AND candidate.state = 'archived'
+          AND candidate.watched = 0
+          AND candidate.updated_at < ${archivedCandidateCutoff}
+      )`.execute(trx);
+      await sql`DELETE FROM market_aggregates AS target WHERE ${purgePredicate}`.execute(trx);
+      const purged = await sql`
+        DELETE FROM candidates
+        WHERE state = 'archived' AND watched = 0 AND updated_at < ${archivedCandidateCutoff}
+          AND NOT EXISTS (
+            SELECT 1 FROM watchlist_items AS item
+            WHERE item.chain_id = candidates.chain_id AND item.token_address = candidates.address
+          )
+      `.execute(trx);
+
+      const discovery = await trx.deleteFrom('discovery_records').where('ingested_at', '<', discoveryCutoff).executeTakeFirst();
+      const completedJobs = await trx.deleteFrom('jobs').where('state', '=', 'completed').where('updated_at', '<', completedJobCutoff).executeTakeFirst();
+      const failedJobs = await trx.deleteFrom('jobs').where('state', '=', 'failed').where('updated_at', '<', failedJobCutoff).executeTakeFirst();
+      const alerts = await sql`
+        DELETE FROM alerts
+        WHERE created_at < ${alertCutoff}
+          AND id NOT IN (
+            SELECT id FROM (
+              SELECT id, ROW_NUMBER() OVER (
+                PARTITION BY chain_id, token_address, kind ORDER BY created_at DESC, rowid DESC
+              ) AS rank FROM alerts
+            ) WHERE rank = 1
+          )
+      `.execute(trx);
+      const appEvents = await trx.deleteFrom('app_events').where('created_at', '<', appEventCutoff).executeTakeFirst();
+
+      let assessmentHistoryDeleted = 0;
+      const assessmentTables = [
+        ['swing_studies', 'generated_at'],
+        ['contract_scans', 'scanned_at'],
+        ['route_assessments', 'assessed_at'],
+        ['score_history', 'calculated_at']
+      ] as const;
+      for (const [tableName, timeColumn] of assessmentTables) {
+        const table = sql.raw(tableName);
+        const time = sql.raw(timeColumn);
+        const expired = await sql`
+          DELETE FROM ${table}
+          WHERE ${time} < ${assessmentDailyCutoff}
+            AND id NOT IN (
+              SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                  PARTITION BY chain_id, token_address ORDER BY ${time} DESC, id DESC
+                ) AS rank FROM ${table}
+              ) WHERE rank = 1
+            )
+        `.execute(trx);
+        const compacted = await sql`
+          DELETE FROM ${table}
+          WHERE ${time} < ${assessmentDetailCutoff}
+            AND id NOT IN (
+              SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                  PARTITION BY chain_id, token_address, SUBSTR(${time}, 1, 10)
+                  ORDER BY ${time} DESC, id DESC
+                ) AS rank FROM ${table}
+              ) WHERE rank = 1
+            )
+            AND id NOT IN (
+              SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                  PARTITION BY chain_id, token_address ORDER BY ${time} DESC, id DESC
+                ) AS rank FROM ${table}
+              ) WHERE rank = 1
+            )
+        `.execute(trx);
+        assessmentHistoryDeleted += Number(expired.numAffectedRows ?? 0n) + Number(compacted.numAffectedRows ?? 0n);
+      }
+
+      return {
+        marketHistoryDeleted,
+        candidatesArchived: Number(archived.numAffectedRows ?? 0n),
+        candidatesDeleted: Number(purged.numAffectedRows ?? 0n),
+        discoveryDeleted: Number(discovery.numDeletedRows),
+        jobsDeleted: Number(completedJobs.numDeletedRows + failedJobs.numDeletedRows),
+        alertsDeleted: Number(alerts.numAffectedRows ?? 0n),
+        appEventsDeleted: Number(appEvents.numDeletedRows),
+        assessmentHistoryDeleted
+      };
+    });
   }
 }
 
