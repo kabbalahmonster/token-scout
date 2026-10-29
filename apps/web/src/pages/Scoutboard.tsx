@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, Heart, LoaderCircle, SlidersHorizontal } from 'lucide-react';
 import type { AssetType, Candidate } from '@doomscout/domain';
 import { client } from '../api.js';
 import { PriceChart } from '../components/PriceChart.js';
@@ -25,12 +25,24 @@ function AssessmentChart({ candidate }: { candidate: Candidate }) {
   return <section className="assessment-chart" aria-label={`${candidate.symbol ?? candidate.address} retained price history`}><div className="assessment-chart-head"><div><strong>Retained price history</strong><span>Tap two points to compare them.</span></div><span>{history.isLoading ? 'loading…' : `${snapshots.length} samples`}</span></div>{history.isError ? <div className="notice error">Could not load retained history: {history.error.message}</div> : history.isLoading ? <div className="assessment-chart-empty">Loading chart…</div> : snapshots.length ? <PriceChart snapshots={snapshots}/> : <div className="assessment-chart-empty">No retained history yet.</div>}</section>;
 }
 
+const preferredWatchlistKey = 'doomscout.preferredWatchlist';
+type Watchlist = { id: string; name: string; labels: string[] };
+function QuickWatch({ candidate, lists, added, pending, failed, onWatch }: { candidate: Candidate; lists: Watchlist[]; added: boolean; pending: boolean; failed: boolean; onWatch: (candidate: Candidate) => void }) {
+  const watched = candidate.watched || added;
+  const targetName = lists.find((list) => list.id === localStorage.getItem(preferredWatchlistKey))?.name ?? lists[0]?.name;
+  const label = watched ? `${candidate.symbol ?? candidate.address} is on a watchlist` : `Add ${candidate.symbol ?? candidate.address} to ${targetName ?? 'a watchlist'}`;
+  return <span className="quick-watch-wrap"><button className={`quick-watch${watched ? ' watched' : ''}${failed ? ' failed' : ''}`} type="button" aria-label={label} title={failed ? 'Could not add to watchlist; tap to retry' : label} disabled={watched || pending} onClick={() => onWatch(candidate)}>{pending ? <LoaderCircle className="spin" size={16}/> : <Heart size={16} fill={watched ? 'currentColor' : 'none'}/>}</button>{failed ? <span className="quick-watch-error" role="status">Could not add</span> : null}</span>;
+}
+
 export function Scoutboard() {
+  const cache = useQueryClient();
   const [initial] = useState(savedSettings);
   const [search, setSearch] = useState(initial.search ?? ''); const [assetType, setAssetType] = useState<AssetType | ''>(initial.assetType ?? 'crypto'); const [marketProfile, setMarketProfile] = useState<MarketProfile>(initial.marketProfile ?? 'quality'); const [verdict, setVerdict] = useState(initial.verdict ?? ''); const [minScore, setMinScore] = useState(initial.minScore ?? ''); const [routeState, setRouteState] = useState(initial.routeState ?? ''); const [sort, setSort] = useState<CandidateSort>(initial.sort ?? 'score'); const [direction, setDirection] = useState<'asc' | 'desc'>(initial.direction ?? 'desc'); const [presetName, setPresetName] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(() => initial.filtersOpen ?? window.matchMedia('(min-width: 761px)').matches);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [expandedAddress, setExpandedAddress] = useState<string | null>(null);
+  const [addedAddresses, setAddedAddresses] = useState(() => new Set<string>());
+  const [watchErrorAddress, setWatchErrorAddress] = useState<string | null>(null);
   const [presets, setPresets] = useState<Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>; } catch { return []; } });
   useEffect(() => { localStorage.setItem(settingsKey, JSON.stringify({ search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen } satisfies ScoutboardSettings)); }, [search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen]);
   const params = new URLSearchParams(); if (search) params.set('search', search); if (assetType) params.set('assetType', assetType); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState);
@@ -40,6 +52,28 @@ export function Scoutboard() {
   else if (marketProfile === 'new') params.set('maxPairAgeDays', '7');
   params.set('sort', sort); params.set('direction', direction); params.set('limit', '2000');
   const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), refetchInterval: 15_000 });
+  const watchlists = useQuery({ queryKey: ['watchlists'], queryFn: client.watchlists, staleTime: 60_000 });
+  const watch = useMutation({
+    mutationFn: async (candidate: Candidate) => {
+      let available = watchlists.data?.data ?? [];
+      if (!available.length) {
+        const created = await client.createWatchlist('Main watchlist');
+        available = [{ id: created.id, name: 'Main watchlist', labels: [] }];
+        await cache.invalidateQueries({ queryKey: ['watchlists'] });
+      }
+      const preferredId = localStorage.getItem(preferredWatchlistKey);
+      const target = available.find((list) => list.id === preferredId) ?? available[0];
+      if (!target) throw new Error('Could not create a watchlist');
+      localStorage.setItem(preferredWatchlistKey, target.id);
+      await client.addWatchlistItem(target.id, candidate.chainId, candidate.address);
+    },
+    onMutate: () => setWatchErrorAddress(null),
+    onSuccess: async (_, candidate) => {
+      setAddedAddresses((current) => new Set(current).add(candidate.address));
+      await cache.invalidateQueries({ queryKey: ['candidates'] });
+    },
+    onError: (_, candidate) => setWatchErrorAddress(candidate.address)
+  });
   const columns = useMemo(() => [
     column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => { const candidate = row.original; const copied = copiedAddress === candidate.address; return <div className="token-cell"><div className="token"><strong>{candidate.symbol ?? 'UNKNOWN'}</strong><span>{candidate.name ?? `${candidate.address.slice(0, 8)}…${candidate.address.slice(-5)}`}</span><span className="mobile-market-cap">MCap <Money value={candidate.latestSnapshot?.marketCapUsd}/></span></div><button className={`copy-address${copied ? ' copied' : ''}`} type="button" title={candidate.address} aria-label={`${copied ? 'Copied' : 'Copy'} contract address ${candidate.address}`} onClick={() => { void navigator.clipboard.writeText(candidate.address).then(() => { setCopiedAddress(candidate.address); window.setTimeout(() => setCopiedAddress((current) => current === candidate.address ? null : current), 1500); }); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</button></div>; } }),
     column.accessor((row) => row.latestSnapshot?.marketCapUsd, { id: 'marketCap', header: 'Market cap', cell: (info) => <Money value={info.getValue()}/> }),
@@ -54,8 +88,8 @@ export function Scoutboard() {
     column.accessor('swingEventsPerDay', { header: 'Events/day', cell: (info) => info.getValue() === null || info.getValue() === undefined ? <span className="unknown">collecting</span> : info.getValue()!.toFixed(2) }),
     column.accessor('routeState', { header: 'Route', cell: (info) => <StateBadge state={info.getValue() ?? 'not_attempted'}/> }),
     column.display({ id: 'flags', header: 'Flags', cell: ({ row }) => { const flags = row.original.flags.filter((flag) => flag.state === 'detected'); return <span className={flags.length ? 'flag-count' : 'muted'}>{flags.length ? <><AlertTriangle size={14}/>{flags.length}</> : 'none detected*'}</span>; } }),
-    column.display({ id: 'go', cell: ({ row }) => { const candidate = row.original; const expanded = expandedAddress === candidate.address; return <button className="row-expand" type="button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${candidate.symbol ?? candidate.address} assessment`} aria-expanded={expanded} onClick={() => setExpandedAddress((current) => current === candidate.address ? null : candidate.address)}>{expanded ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button>; } })
-  ], [copiedAddress, expandedAddress]);
+    column.display({ id: 'go', cell: ({ row }) => { const candidate = row.original; const expanded = expandedAddress === candidate.address; return <div className="row-actions"><QuickWatch candidate={candidate} lists={watchlists.data?.data ?? []} added={addedAddresses.has(candidate.address)} pending={watch.isPending && watch.variables.address === candidate.address} failed={watchErrorAddress === candidate.address} onWatch={(selected) => watch.mutate(selected)}/><button className="row-expand" type="button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${candidate.symbol ?? candidate.address} assessment`} aria-expanded={expanded} onClick={() => setExpandedAddress((current) => current === candidate.address ? null : candidate.address)}>{expanded ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button></div>; } })
+  ], [addedAddresses, copiedAddress, expandedAddress, watch.isPending, watch.variables, watchErrorAddress, watchlists.data?.data]);
   const table = useReactTable({ data: query.data?.data ?? [], columns, getCoreRowModel: getCoreRowModel() });
   const activeFilterCount = [search, assetType, marketProfile === 'all' ? '' : marketProfile, verdict, minScore, routeState].filter(Boolean).length;
   return <section className="page">

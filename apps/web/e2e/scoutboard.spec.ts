@@ -74,6 +74,23 @@ test('tapping a mobile candidate row expands its assessment snapshot', async ({ 
   await expect(page.getByRole('link', { name: /Full assessment/ })).toBeVisible();
 });
 
+test('a candidate can be added to the watchlist directly from Scoutboard', async ({ page }) => {
+  const address = '0x1111111111111111111111111111111111111111';
+  const candidate = { chainId: 4663, address, symbol: 'FOX', name: 'Fox', decimals: 18, totalSupply: '1000', assetType: 'crypto', state: 'assessed', canonicalPair: null, discoveredAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', watched: false, score: 72, verdict: 'PASS', confidence: 81, scoreVersion: '1.0.0', flags: [], latestSnapshot: { marketCapUsd: '100000', liquidityUsd: '50000', volume24hUsd: '12000', pairCreatedAt: '2026-09-01T00:00:00Z' }, swingScore: 65, swingEventsPerDay: 1.25, routeState: 'available' };
+  await page.route('**/api/v1/candidates?**', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [candidate] }) }));
+  await page.route('**/api/v1/watchlists', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Conviction', labels: [] }] }) }));
+  const added = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/v1/watchlists/11111111-1111-4111-8111-111111111111/items'));
+  await page.route('**/api/v1/watchlists/11111111-1111-4111-8111-111111111111/items', async (route) => route.fulfill({ status: 204 }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Add FOX to Conviction' }).click();
+  const request = await added;
+  expect(request.postDataJSON()).toEqual({ chainId: 4663, address });
+  await expect(page.getByRole('button', { name: 'FOX is on a watchlist' })).toBeDisabled();
+  await expect(page.getByText('Assessment snapshot')).toHaveCount(0);
+});
+
 test('candidate filters and sorting survive a reload', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Market profile').selectOption('new');
