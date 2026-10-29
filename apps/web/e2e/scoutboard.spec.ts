@@ -28,6 +28,28 @@ test('candidate filters collapse on mobile and remain usable', async ({ page }) 
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByLabel('Search candidates')).toBeVisible();
+
+  await expect(page.getByRole('columnheader', { name: 'Market cap' })).toBeHidden();
+  await expect(page.getByRole('columnheader', { name: 'Score' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Verdict' })).toBeVisible();
+});
+
+test('mobile auth stays out of the way until requested', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  const authToggle = page.getByRole('button', { name: 'API token' });
+  const authInput = page.getByLabel('API bearer token');
+  await expect(authToggle).toBeVisible();
+  await expect(authToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(authInput).toBeHidden();
+  await authToggle.click();
+  await expect(authToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(authInput).toBeVisible();
+
+  const scoutboardLink = page.getByRole('link', { name: 'Scoutboard' });
+  const linkBox = await scoutboardLink.boundingBox();
+  expect(linkBox?.height).toBeGreaterThanOrEqual(44);
 });
 
 test('candidate filters and sorting survive a reload', async ({ page }) => {
