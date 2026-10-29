@@ -4,6 +4,7 @@ import type { MarketSnapshot } from '@doomscout/domain';
 
 interface SelectedPoint { snapshot: MarketSnapshot; time: Time; price: number }
 interface MarketCapPoint { value: number; estimated: boolean }
+interface NormalizedPricePoint { snapshot: MarketSnapshot; value: number; source: string }
 
 function money(value: string | null): string {
   if (value === null) return 'unknown';
@@ -21,6 +22,59 @@ function finitePositive(value: string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function configuredCadence(source: string): number {
+  if (source === 'doomscout_1h_aggregate' || source === 'geckoterminal_1h_candle') return 3600;
+  if (source === 'doomscout_5m_aggregate') return 300;
+  return 60;
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+export function priceChartData(snapshots: MarketSnapshot[]): { points: Array<LineData | WhitespaceData>; snapshotByTime: Map<number, MarketSnapshot> } {
+  const normalizedByTime = new Map<number, NormalizedPricePoint>();
+  const timesBySource = new Map<string, number[]>();
+  for (const snapshot of snapshots) {
+    const timestamp = Math.floor(Date.parse(observedAt(snapshot)) / 1000);
+    const value = Number(snapshot.priceUsd ?? snapshot.priceNative);
+    if (!Number.isFinite(timestamp) || !Number.isFinite(value)) continue;
+    normalizedByTime.set(timestamp, { snapshot, value, source: snapshot.source });
+    const sourceTimes = timesBySource.get(snapshot.source) ?? [];
+    sourceTimes.push(timestamp);
+    timesBySource.set(snapshot.source, sourceTimes);
+  }
+
+  // Provider polling and retained aggregate cadence can differ from the source
+  // label (for example, old 5m aggregates may be compacted to hourly points).
+  // Infer each source's normal cadence so regular samples remain connected,
+  // while still breaking the line across genuine collection outages.
+  const cadenceBySource = new Map<string, number>();
+  for (const [source, rawTimes] of timesBySource) {
+    const times = [...new Set(rawTimes)].sort((left, right) => left - right);
+    const gaps = times.slice(1).map((timestamp, index) => timestamp - times[index]!).filter((gap) => gap > 0);
+    const observedCadence = gaps.length >= 2 ? median(gaps) : null;
+    cadenceBySource.set(source, Math.max(configuredCadence(source), observedCadence ?? 0));
+  }
+
+  const points: Array<LineData | WhitespaceData> = [];
+  const snapshotByTime = new Map<number, MarketSnapshot>();
+  let previous = 0;
+  let previousExpected = 60;
+  for (const [timestamp, { snapshot, value, source }] of [...normalizedByTime].sort(([left], [right]) => left - right)) {
+    const expected = cadenceBySource.get(source) ?? configuredCadence(source);
+    if (previous && timestamp - previous > Math.max(previousExpected, expected) * 3) points.push({ time: (previous + previousExpected) as Time });
+    points.push({ time: timestamp as Time, value });
+    snapshotByTime.set(timestamp, snapshot);
+    previous = timestamp;
+    previousExpected = expected;
+  }
+  return { points, snapshotByTime };
 }
 
 /**
@@ -58,22 +112,7 @@ export function PriceChart({ snapshots }: { snapshots: MarketSnapshot[] }) {
     if (!ref.current) return;
     const chart = createChart(ref.current, { height: 300, layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#91a3aa' }, grid: { vertLines: { color: '#172126' }, horzLines: { color: '#172126' } }, rightPriceScale: { borderColor: '#25353c' }, timeScale: { borderColor: '#25353c', timeVisible: true } });
     const series = chart.addSeries(LineSeries, { color: '#50f0b6', lineWidth: 2, crosshairMarkerVisible: true, priceFormat: { type: 'price', precision: 12, minMove: 1e-12 } });
-    const points: Array<LineData | WhitespaceData> = [];
-    const snapshotByTime = new Map<number, MarketSnapshot>();
-    const normalizedByTime = new Map<number, { snapshot: MarketSnapshot; value: number; expected: number }>();
-    for (const snapshot of snapshots) {
-      const timestamp = Math.floor(Date.parse(observedAt(snapshot)) / 1000);
-      const value = Number(snapshot.priceUsd ?? snapshot.priceNative);
-      if (!Number.isFinite(timestamp) || !Number.isFinite(value)) continue;
-      const expected = snapshot.source === 'doomscout_1h_aggregate' || snapshot.source === 'geckoterminal_1h_candle' ? 3600 : snapshot.source === 'doomscout_5m_aggregate' ? 300 : 60;
-      normalizedByTime.set(timestamp, { snapshot, value, expected });
-    }
-    let previous = 0;
-    let previousExpected = 60;
-    for (const [timestamp, { snapshot, value, expected }] of [...normalizedByTime].sort(([left], [right]) => left - right)) {
-      if (previous && timestamp - previous > Math.max(previousExpected, expected) * 3) points.push({ time: (previous + previousExpected) as Time });
-      points.push({ time: timestamp as Time, value }); snapshotByTime.set(timestamp, snapshot); previous = timestamp; previousExpected = expected;
-    }
+    const { points, snapshotByTime } = priceChartData(snapshots);
     series.setData(points);
     const markerApi = createSeriesMarkers(series, selectedRef.current.map((point, index) => ({ time: point.time, position: 'atPriceTop', price: point.price, color: index === 0 ? '#56a8ff' : '#f0c45b', shape: 'circle', text: index === 0 ? 'A' : 'B' } satisfies SeriesMarker<Time>)));
     markerRef.current = markerApi;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketSnapshot } from '@doomscout/domain';
-import { historicalMarketCap } from '../src/components/PriceChart.js';
+import { historicalMarketCap, priceChartData } from '../src/components/PriceChart.js';
 
 function snapshot(overrides: Partial<MarketSnapshot>): MarketSnapshot {
   return {
@@ -47,3 +47,34 @@ describe('historicalMarketCap', () => {
   });
 });
 
+describe('priceChartData', () => {
+  it('connects regular retained samples using their observed cadence', () => {
+    const snapshots = [0, 1, 2, 3].map((hour) => snapshot({
+      id: hour + 1,
+      fingerprint: `hour-${hour}`,
+      source: 'doomscout_5m_aggregate',
+      sourceTime: `2026-10-27T0${hour}:00:00.000Z`,
+      ingestedAt: `2026-10-27T0${hour}:00:00.000Z`,
+      priceUsd: String(1 + hour / 10)
+    }));
+
+    expect(priceChartData(snapshots).points).toHaveLength(4);
+    expect(priceChartData(snapshots).points.every((point) => 'value' in point)).toBe(true);
+  });
+
+  it('still inserts whitespace across a genuine outage', () => {
+    const hours = [0, 1, 2, 7];
+    const snapshots = hours.map((hour, index) => snapshot({
+      id: index + 1,
+      fingerprint: `hour-${hour}`,
+      source: 'geckoterminal_1h_candle',
+      sourceTime: `2026-10-27T0${hour}:00:00.000Z`,
+      ingestedAt: `2026-10-27T0${hour}:00:00.000Z`,
+      priceUsd: String(1 + index / 10)
+    }));
+
+    const points = priceChartData(snapshots).points;
+    expect(points).toHaveLength(5);
+    expect(points.filter((point) => !('value' in point))).toHaveLength(1);
+  });
+});
