@@ -103,3 +103,11 @@ main { min-width:0; }.topbar { height:54px; border-bottom:1px solid var(--line);
   .inlineform{display:grid;grid-template-columns:1fr}.inlineform input,.inlineform select,.inlineform button{width:100%}
   .filters-toggle>span:last-child{display:none}
 }
+
+/* lightweight-charts uses an internal table. Keep Scoutboard table rules from
+   hiding and padding its pane/price-scale cells on mobile. */
+.chart table{width:auto;border-collapse:separate;font-size:initial}
+.chart table td{display:table-cell!important;width:auto!important;border:0!important;padding:0!important;vertical-align:top;white-space:normal;background:transparent!important}
+.chart table td:nth-child(1){width:0!important}
+.chart table td:nth-child(2){width:100%!important}
+.chart table td:nth-child(3){width:auto!important}

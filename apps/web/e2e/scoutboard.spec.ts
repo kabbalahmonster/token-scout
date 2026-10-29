@@ -66,7 +66,11 @@ test('tapping a mobile candidate row expands its assessment snapshot', async ({ 
   await expect(page.getByText('81/100')).toBeVisible();
   await expect(page.getByText('Owner control')).toBeVisible();
   await expect(page.getByLabel('FOX retained price history')).toBeVisible();
-  await expect(page.getByLabel(/Retained price history chart/)).toBeVisible();
+  const chart = page.getByLabel(/Retained price history chart/);
+  await expect(chart).toBeVisible();
+  const chartBox = await chart.boundingBox();
+  const canvasRightEdges = await chart.locator('canvas').evaluateAll((canvases) => canvases.map((canvas) => canvas.getBoundingClientRect().right));
+  expect(Math.max(...canvasRightEdges)).toBeGreaterThan((chartBox?.x ?? 0) + (chartBox?.width ?? 0) - 2);
   await expect(page.getByRole('link', { name: /Full assessment/ })).toBeVisible();
 });
 
