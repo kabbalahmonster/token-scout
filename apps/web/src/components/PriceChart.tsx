@@ -74,7 +74,7 @@ export function PriceChart({ snapshots }: { snapshots: MarketSnapshot[] }) {
       if (previous && timestamp - previous > Math.max(previousExpected, expected) * 3) points.push({ time: (previous + previousExpected) as Time });
       points.push({ time: timestamp as Time, value }); snapshotByTime.set(timestamp, snapshot); previous = timestamp; previousExpected = expected;
     }
-    series.setData(points); chart.timeScale().fitContent();
+    series.setData(points);
     const markerApi = createSeriesMarkers(series, selectedRef.current.map((point, index) => ({ time: point.time, position: 'atPriceTop', price: point.price, color: index === 0 ? '#56a8ff' : '#f0c45b', shape: 'circle', text: index === 0 ? 'A' : 'B' } satisfies SeriesMarker<Time>)));
     markerRef.current = markerApi;
     const clickHandler = (event: MouseEventParams<Time>) => {
@@ -86,7 +86,18 @@ export function PriceChart({ snapshots }: { snapshots: MarketSnapshot[] }) {
       setSelected((current) => current.length >= 2 ? [point] : [...current, point]);
     };
     chart.subscribeClick(clickHandler);
-    const observer = new ResizeObserver(() => chart.applyOptions({ width: ref.current?.clientWidth ?? 600 })); observer.observe(ref.current);
+    // Expanded table rows can briefly report their pre-expansion width on mobile.
+    // Fitting before the row has settled leaves the time scale focused on a
+    // single final sample: the price label renders, but a one-point line does
+    // not. Re-fit after every real container resize so the complete retained
+    // range remains visible after expansion and orientation changes.
+    const observer = new ResizeObserver(() => {
+      const width = ref.current?.clientWidth ?? 0;
+      if (width <= 0) return;
+      chart.applyOptions({ width });
+      chart.timeScale().fitContent();
+    });
+    observer.observe(ref.current);
     return () => { observer.disconnect(); chart.unsubscribeClick(clickHandler); markerRef.current = null; chart.remove(); };
   }, [snapshots]);
 
