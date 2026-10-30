@@ -155,11 +155,11 @@ export function PriceChart({ snapshots }: { snapshots: MarketSnapshot[] }) {
     <div ref={ref} className="chart" aria-label="Retained price history chart; click two data points to compare them"/>
     <div className="chart-instructions"><span>{selected.length === 0 ? 'Click a point to select A.' : selected.length === 1 ? 'Now click a second point to compare B.' : 'Click another point to start a new comparison.'}</span>{selected.length ? <button type="button" onClick={() => setSelected([])}>Clear comparison</button> : null}</div>
     {selected.length ? <div className="chart-selection" aria-live="polite">
+      {change !== null ? <article className={`chart-comparison ${change >= 0 ? 'positive' : 'negative'}`}><strong>{change >= 0 ? 'Up' : 'Down'} {Math.abs(change).toFixed(2)}%</strong><span>Price change from A → B</span>{marketCapChange !== null ? <small>{firstMarketCap?.estimated || secondMarketCap?.estimated ? 'Estimated m' : 'M'}arket cap {marketCapChange >= 0 ? 'up' : 'down'} {Math.abs(marketCapChange).toFixed(2)}%</small> : <small>Historical market cap unavailable for one or both points</small>}</article> : null}
       {selected.map((point, index) => {
         const marketCap = marketCaps[index];
         return <article key={`${point.snapshot.fingerprint}:${index}`} className={`chart-point point-${index === 0 ? 'a' : 'b'}`}><strong>Point {index === 0 ? 'A' : 'B'}</strong><span>{new Date(observedAt(point.snapshot)).toLocaleString()}</span><dl><dt>Price</dt><dd>{price(point.price)}</dd><dt>Market cap</dt><dd>{marketCap ? `${marketCap.estimated ? '≈ ' : ''}${money(String(marketCap.value))}${marketCap.estimated ? ' estimated' : ''}` : 'unknown'}</dd><dt>Liquidity</dt><dd>{money(point.snapshot.liquidityUsd)}</dd><dt>24h volume</dt><dd>{money(point.snapshot.volume24hUsd)}</dd></dl></article>;
       })}
-      {change !== null ? <article className={`chart-comparison ${change >= 0 ? 'positive' : 'negative'}`}><strong>{change >= 0 ? 'Up' : 'Down'} {Math.abs(change).toFixed(2)}%</strong><span>Price change from A → B</span>{marketCapChange !== null ? <small>{firstMarketCap?.estimated || secondMarketCap?.estimated ? 'Estimated m' : 'M'}arket cap {marketCapChange >= 0 ? 'up' : 'down'} {Math.abs(marketCapChange).toFixed(2)}%</small> : <small>Historical market cap unavailable for one or both points</small>}</article> : null}
     </div> : null}
   </div>;
 }
