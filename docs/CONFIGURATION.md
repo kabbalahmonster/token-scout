@@ -13,6 +13,13 @@ and three new-pool pages. `DISCOVERY_MIN_LIQUIDITY_USD`,
 (168 hours by default, bounded to 24–720). Keep the page counts and provider
 budgets conservative on the key-free endpoint.
 
+`GECKOTERMINAL_REQUESTS_PER_MINUTE` controls the worker's shared discovery and
+OHLCV request queue. It defaults to 6 and is bounded to 1–30. Raising it does
+not change scheduling priority; it only increases provider throughput. A daily
+full-universe rotation at roughly 5,800 candidates needs about 10 requests per
+minute after allowing capacity for 15-minute discovery and hourly priority
+refreshes. Monitor source health and lower it if the shared IP receives 429s.
+
 ## Retained-candidate refresh
 
 `CANDIDATE_REFRESH_ENABLED` defaults to `false`, preserving legacy discovery-
@@ -52,6 +59,10 @@ discovery. At the current 5,800-candidate scale, a 72-hour rotation averages
 about 81 long-tail assessments per hour before rediscovery removes duplicate
 need. Provider limiters remain authoritative if individual assessments need
 extra calls.
+
+For a daily rotation, set `UNIVERSE_REFRESH_SECONDS=86400` and
+`GECKOTERMINAL_REQUESTS_PER_MINUTE=10`. The five-job queue cap and discovery
+priority remain unchanged.
 
 `JOB_LEASE_SECONDS` defaults to 900. A running job whose worker lease is older
 than that is safely returned to the queue. DoomScout jobs perform discovery,

@@ -29,7 +29,7 @@ The repository now contains the working TypeScript MVP described below:
   assessment, retention, and alert jobs;
 - credential-free GeckoTerminal, DexScreener, Robinhood RPC,
   CoinGecko, and Sushi adapters with source budgets, timeout/retry/cache/circuit
-  state; GeckoTerminal supplies a broad top/new-pool universe and seven-day
+  state; GeckoTerminal's shared request budget is configurable and supplies a broad top/new-pool universe and seven-day
   hourly OHLCV bootstrap rather than starting every swing study empty;
 - SQLite WAL evidence storage with immutable raw snapshots, 5-minute and hourly
   aggregates, versioned studies/scans/scores, migrations, backup, restore, and

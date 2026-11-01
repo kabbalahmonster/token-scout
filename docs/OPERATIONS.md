@@ -56,9 +56,10 @@ CANDIDATE_REFRESH_SECONDS=3600
 CANDIDATE_REFRESH_MIN_SCORE=60
 CANDIDATE_REFRESH_BATCH_SIZE=50
 UNIVERSE_REFRESH_ENABLED=true
-UNIVERSE_REFRESH_SECONDS=259200
+UNIVERSE_REFRESH_SECONDS=86400
 UNIVERSE_REFRESH_BATCH_SIZE=5
 JOB_LEASE_SECONDS=900
+GECKOTERMINAL_REQUESTS_PER_MINUTE=10
 ```
 
 Back up the database, rebuild, and restart only the worker. Confirm that the
@@ -69,6 +70,9 @@ revision if needed, and restarting the worker; no schema or state migration is
 required. Discovery has queue precedence over both refresh lanes. A five-job
 wide-lane batch limits how long newly queued discovery can wait even if a
 provider call is already in flight.
+The 10 rpm GeckoTerminal budget supports a daily sweep at the current universe
+size while remaining below the key-free ceiling; reduce it and lengthen the
+universe cadence together if Operations reports throttling.
 
 ## Housekeeping preview and activation
 

@@ -10,6 +10,7 @@ describe('retention configuration', () => {
     expect(config.HOURLY_RETENTION_DAYS).toBe(730);
     expect(config.CANDIDATE_REFRESH_ENABLED).toBe(false);
     expect(config.UNIVERSE_REFRESH_ENABLED).toBe(false);
+    expect(config.GECKOTERMINAL_REQUESTS_PER_MINUTE).toBe(6);
   });
 
   it('accepts explicit bounded candidate refresh activation', () => {
@@ -34,6 +35,11 @@ describe('retention configuration', () => {
 
   it('rejects an unsafe full-universe refresh cadence', () => {
     expect(() => loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', UNIVERSE_REFRESH_SECONDS: '3600' })).toThrow('UNIVERSE_REFRESH_SECONDS');
+  });
+
+  it('accepts a bounded GeckoTerminal provider budget', () => {
+    expect(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', GECKOTERMINAL_REQUESTS_PER_MINUTE: '10' }).GECKOTERMINAL_REQUESTS_PER_MINUTE).toBe(10);
+    expect(() => loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', GECKOTERMINAL_REQUESTS_PER_MINUTE: '31' })).toThrow('GECKOTERMINAL_REQUESTS_PER_MINUTE');
   });
 
   it('accepts explicit comprehensive housekeeping activation', () => {

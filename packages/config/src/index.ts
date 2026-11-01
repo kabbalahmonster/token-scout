@@ -19,6 +19,7 @@ const configSchema = z.object({
   ROBINHOOD_RPC_URL: z.string().url().default('https://rpc.mainnet.chain.robinhood.com'),
   DEXSCREENER_API_URL: z.string().url().default('https://api.dexscreener.com'),
   GECKOTERMINAL_API_URL: z.string().url().default('https://api.geckoterminal.com/api/v2'),
+  GECKOTERMINAL_REQUESTS_PER_MINUTE: z.coerce.number().int().min(1).max(30).default(6),
   COINGECKO_API_URL: z.string().url().default('https://api.coingecko.com/api/v3'),
   SUSHI_QUOTE_URL: optionalUrl.default('https://api.sushi.com/quote/v7/4663'),
   WRAPPED_NATIVE_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional().or(z.literal('')),

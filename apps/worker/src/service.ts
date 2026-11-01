@@ -14,7 +14,7 @@ export class AssessmentService {
   constructor(private readonly config: AppConfig, private readonly repositories: Repositories) {
     const resilience: ResilienceOptions = { timeoutMs: config.ADAPTER_TIMEOUT_MS, retries: config.ADAPTER_RETRIES, cacheTtlMs: config.ADAPTER_CACHE_SECONDS * 1000, requestsPerMinute: 60 };
     this.dex = new DexScreenerAdapter(config.DEXSCREENER_API_URL, resilience);
-    this.geckoTerminal = new GeckoTerminalAdapter(config.GECKOTERMINAL_API_URL, resilience);
+    this.geckoTerminal = new GeckoTerminalAdapter(config.GECKOTERMINAL_API_URL, resilience, undefined, 'robinhood', config.GECKOTERMINAL_REQUESTS_PER_MINUTE);
     this.rpc = new JsonRpcAdapter(config.ROBINHOOD_RPC_URL, resilience);
     this.coinGecko = new CoinGeckoAdapter(config.COINGECKO_API_URL, resilience);
     this.sushi = new SushiQuoteAdapter(config.SUSHI_QUOTE_URL, resilience);

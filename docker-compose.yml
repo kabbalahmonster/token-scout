@@ -15,6 +15,7 @@ services:
       ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
       DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}
       GECKOTERMINAL_API_URL: ${GECKOTERMINAL_API_URL:-https://api.geckoterminal.com/api/v2}
+      GECKOTERMINAL_REQUESTS_PER_MINUTE: ${GECKOTERMINAL_REQUESTS_PER_MINUTE:-6}
       COINGECKO_API_URL: ${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
       SUSHI_QUOTE_URL: ${SUSHI_QUOTE_URL:-https://api.sushi.com/quote/v7/4663}
       PLANNED_BUDGET_WEI: ${PLANNED_BUDGET_WEI:-100000000000000000}
@@ -39,6 +40,7 @@ services:
       ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}
       DEXSCREENER_API_URL: ${DEXSCREENER_API_URL:-https://api.dexscreener.com}
       GECKOTERMINAL_API_URL: ${GECKOTERMINAL_API_URL:-https://api.geckoterminal.com/api/v2}
+      GECKOTERMINAL_REQUESTS_PER_MINUTE: ${GECKOTERMINAL_REQUESTS_PER_MINUTE:-6}
       COINGECKO_API_URL: ${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
       SUSHI_QUOTE_URL: ${SUSHI_QUOTE_URL:-https://api.sushi.com/quote/v7/4663}
       DISCOVERY_INTERVAL_SECONDS: ${DISCOVERY_INTERVAL_SECONDS:-900}
