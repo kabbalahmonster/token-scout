@@ -18,11 +18,27 @@ async function schedule(): Promise<void> {
   await database.repositories.enqueueScheduled('discover', `discovery:${Math.floor(now / (config.DISCOVERY_INTERVAL_SECONDS * 1000))}`, {});
   const watched = await database.repositories.listCandidates({ watched: true, limit: 2000 });
   await Promise.all(watched.map((candidate) => database.repositories.enqueueScheduled('assess', `watch:${candidate.chainId}:${candidate.address}:${Math.floor(now / (config.WATCHED_POLL_SECONDS * 1000))}`, { chainId: candidate.chainId, address: candidate.address })));
+  if (config.CANDIDATE_REFRESH_ENABLED) {
+    const assessedBefore = new Date(now - config.CANDIDATE_REFRESH_SECONDS * 1000).toISOString();
+    const refresh = await database.repositories.listRefreshCandidates({
+      assessedBefore,
+      minScore: config.CANDIDATE_REFRESH_MIN_SCORE,
+      limit: config.CANDIDATE_REFRESH_BATCH_SIZE
+    });
+    await Promise.all(refresh.map((candidate) => database.repositories.enqueueScheduled(
+      'assess',
+      `refresh:${candidate.chainId}:${candidate.address}:${Math.floor(now / (config.CANDIDATE_REFRESH_SECONDS * 1000))}`,
+      { chainId: candidate.chainId, address: candidate.address }
+    )));
+  }
   const assessed = await database.repositories.listCandidates({ limit: 2000 });
   await Promise.all(assessed.filter((candidate) => {
     if (!candidate.latestSnapshot) return false;
-    const staleAfterMs = staleAfterSeconds(candidate.watched, config.WATCHED_POLL_SECONDS, config.DISCOVERY_INTERVAL_SECONDS) * 1000;
-    return Date.now() - Date.parse(candidate.latestSnapshot.ingestedAt) > staleAfterMs;
+    const refreshEligible = config.CANDIDATE_REFRESH_ENABLED
+      && ['PASS', 'CAUTION'].includes(candidate.verdict)
+      && (candidate.score ?? -1) >= config.CANDIDATE_REFRESH_MIN_SCORE;
+    const staleAfterMs = staleAfterSeconds(candidate.watched, config.WATCHED_POLL_SECONDS, config.DISCOVERY_INTERVAL_SECONDS, refreshEligible ? config.CANDIDATE_REFRESH_SECONDS : undefined) * 1000;
+    return candidate.state !== 'stale' && Date.now() - Date.parse(candidate.latestSnapshot.ingestedAt) > staleAfterMs;
   }).map((candidate) => database.repositories.setCandidateState(candidate.chainId, candidate.address, 'stale')));
   await database.repositories.enqueueScheduled('retention', `retention:${new Date().toISOString().slice(0, 10)}`, {});
 }

@@ -22,4 +22,8 @@ describe('candidate freshness windows', () => {
   it('uses the discovery cadence for the broader candidate universe', () => {
     expect(staleAfterSeconds(false, 60, 900)).toBe(2700);
   });
+
+  it('uses the bounded refresh cadence for eligible retained candidates', () => {
+    expect(staleAfterSeconds(false, 60, 900, 3600)).toBe(10_800);
+  });
 });

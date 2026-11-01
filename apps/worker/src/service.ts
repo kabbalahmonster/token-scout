@@ -100,7 +100,12 @@ export class AssessmentService {
       if (canonical) await this.repositories.insertSnapshot(canonical.snapshot, canonical.raw);
 
       const canonicalPair = canonical?.pairAddress ?? persistedCandidate?.canonicalPair ?? null;
-      if (canonicalPair && !(await this.repositories.hasSnapshotSource(chainId, address, 'geckoterminal_1h_candle'))) {
+      const lastHourlyCandle = canonicalPair
+        ? await this.repositories.latestSnapshotAtForSource(chainId, address, 'geckoterminal_1h_candle')
+        : null;
+      const refreshHourlyHistory = this.config.CANDIDATE_REFRESH_ENABLED
+        && (!lastHourlyCandle || Date.now() - Date.parse(lastHourlyCandle) >= this.config.CANDIDATE_REFRESH_SECONDS * 1000);
+      if (canonicalPair && (!lastHourlyCandle || refreshHourlyHistory)) {
         const backfill = await this.geckoTerminal.hourlyHistory(address, canonicalPair, this.config.HISTORY_BACKFILL_HOURS).catch(() => []);
         for (const snapshot of backfill) await this.repositories.insertSnapshot(snapshot, { provider: 'geckoterminal', kind: 'hourly_ohlcv' });
       }
@@ -143,6 +148,6 @@ export function selectCanonicalMarketPair<T extends { pairAddress: Address; liqu
  * discovery cycle, so applying the watched cadence to it would incorrectly
  * label almost every otherwise healthy candidate stale between scans.
  */
-export function staleAfterSeconds(watched: boolean, watchedPollSeconds: number, discoveryIntervalSeconds: number): number {
-  return 3 * (watched ? watchedPollSeconds : discoveryIntervalSeconds);
+export function staleAfterSeconds(watched: boolean, watchedPollSeconds: number, discoveryIntervalSeconds: number, refreshSeconds?: number): number {
+  return 3 * (watched ? watchedPollSeconds : refreshSeconds ?? discoveryIntervalSeconds);
 }

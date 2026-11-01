@@ -43,6 +43,26 @@ served assets. Build it with `pnpm build:hosted`. The `doomscout-web.service`
 preview process must serve `--outDir dist-hosted`. The generic Docker deployment
 continues to build and serve `apps/web/dist` at the domain root.
 
+## Candidate refresh activation
+
+Legacy installs only reassess tokens returned by current discovery feeds or
+placed on a watchlist. To keep previously qualified Scoutboard entries current
+without polling the entire rejected universe, enable the bounded refresh lane:
+
+```dotenv
+CANDIDATE_REFRESH_ENABLED=true
+CANDIDATE_REFRESH_SECONDS=3600
+CANDIDATE_REFRESH_MIN_SCORE=60
+CANDIDATE_REFRESH_BATCH_SIZE=50
+```
+
+Back up the database, rebuild, and restart only the worker. Confirm that the
+queue remains bounded and that `geckoterminal`, `dexscreener_pairs`,
+`robinhood_rpc`, and `sushi_quote` remain healthy in Operations. Rollback is a
+worker stop, setting `CANDIDATE_REFRESH_ENABLED=false`, rebuilding the previous
+revision if needed, and restarting the worker; no schema or state migration is
+required.
+
 ## Housekeeping preview and activation
 
 Comprehensive retention is opt-in. Preview the exact result first; the command

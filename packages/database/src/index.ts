@@ -64,6 +64,7 @@ function snapshotFromRow(row: any): MarketSnapshot {
 
 export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'events_per_day' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
 export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; minPairAgeDays?: number; maxPairAgeDays?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
+export interface RefreshCandidate { chainId: number; address: Address; verdict: Verdict; score: number; lastAssessedAt: string }
 export interface HousekeepingPolicy {
   rawDays: number; fiveMinuteDays: number; hourlyDays: number;
   candidateArchiveDays: number; archivedCandidateDays: number;
@@ -187,6 +188,33 @@ export class Repositories {
     return sorted.slice(offset, offset + Math.min(filters.limit ?? 100, 2000));
   }
 
+  async listRefreshCandidates(input: { assessedBefore: string; minScore: number; limit: number }): Promise<RefreshCandidate[]> {
+    const rows = await this.db.selectFrom('candidates as candidate')
+      .innerJoin('score_history as score', (join) => join
+        .onRef('score.chain_id', '=', 'candidate.chain_id')
+        .onRef('score.token_address', '=', 'candidate.address')
+        .on('score.calculated_at', '=', (eb) => eb.selectFrom('score_history as latest')
+          .select(({ fn }) => fn.max('latest.calculated_at').as('calculated_at'))
+          .whereRef('latest.chain_id', '=', 'candidate.chain_id')
+          .whereRef('latest.token_address', '=', 'candidate.address')))
+      .select(['candidate.chain_id', 'candidate.address', 'candidate.verdict', 'candidate.score', 'score.calculated_at'])
+      .where('candidate.watched', '=', 0)
+      .where('candidate.state', '!=', 'archived')
+      .where('candidate.verdict', 'in', ['PASS', 'CAUTION'])
+      .where('candidate.score', '>=', input.minScore)
+      .where('score.calculated_at', '<=', input.assessedBefore)
+      .orderBy('score.calculated_at', 'asc')
+      .limit(input.limit)
+      .execute();
+    return rows.map((row) => ({
+      chainId: row.chain_id,
+      address: row.address as Address,
+      verdict: row.verdict as Verdict,
+      score: Number(row.score),
+      lastAssessedAt: row.calculated_at
+    }));
+  }
+
   async upsertPair(input: { chainId: number; tokenAddress: Address; pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null }): Promise<void> {
     const now = new Date().toISOString();
     await this.db.insertInto('pairs').values({ chain_id: input.chainId, token_address: input.tokenAddress, pair_address: input.pairAddress, dex: input.dex, url: input.url, quote_token_address: input.quoteTokenAddress, created_at: input.createdAt, liquidity_usd: input.liquidityUsd, last_seen_at: now })
@@ -233,6 +261,13 @@ export class Repositories {
   async hasSnapshotSource(chainId: number, address: Address, source: string): Promise<boolean> {
     const row = await this.db.selectFrom('market_snapshots').select('id').where('chain_id', '=', chainId).where('token_address', '=', address).where('source', '=', source).limit(1).executeTakeFirst();
     return row !== undefined;
+  }
+
+  async latestSnapshotAtForSource(chainId: number, address: Address, source: string): Promise<string | null> {
+    const row = await this.db.selectFrom('market_snapshots').select('ingested_at')
+      .where('chain_id', '=', chainId).where('token_address', '=', address).where('source', '=', source)
+      .orderBy('ingested_at', 'desc').limit(1).executeTakeFirst();
+    return row?.ingested_at ?? null;
   }
 
   async history(chainId: number, address: Address, since?: string, limit = 20_000): Promise<MarketSnapshot[]> {

@@ -13,6 +13,28 @@ and three new-pool pages. `DISCOVERY_MIN_LIQUIDITY_USD`,
 (168 hours by default, bounded to 24–720). Keep the page counts and provider
 budgets conservative on the key-free endpoint.
 
+## Retained-candidate refresh
+
+`CANDIDATE_REFRESH_ENABLED` defaults to `false`, preserving legacy discovery-
+only behavior for existing deployments. When explicitly enabled, the worker
+also reassesses unwatched `PASS`/`CAUTION` candidates whose current score is at
+least `CANDIDATE_REFRESH_MIN_SCORE` (60 by default). The oldest assessment is
+served first, no more than `CANDIDATE_REFRESH_BATCH_SIZE` (50) candidates stay
+queued, and each candidate becomes due after `CANDIDATE_REFRESH_SECONDS` (3600).
+Watched candidates keep their separate faster cadence.
+
+Refresh assessments update the latest market/contract/route evidence and
+renew the attributed GeckoTerminal hourly OHLCV window when it is older than
+the refresh cadence. Candle fingerprints are stable by pool and timestamp, so
+overlapping backfills are deduplicated rather than inflating coverage. Eligible
+candidates are considered stale only after three missed refresh intervals;
+other unwatched candidates retain the discovery-based freshness rule.
+
+This is intentionally a high-potential refresh lane, not a full-universe poll:
+reassessing every rejected discovery lead would exhaust key-free provider
+budgets and delay useful work. A rejected or low-score token can re-enter the
+lane after ordinary discovery observes enough current evidence to raise it.
+
 ## Retention and housekeeping
 
 Raw market snapshots, 5-minute aggregates, and hourly aggregates are always

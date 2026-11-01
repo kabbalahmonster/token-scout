@@ -63,6 +63,37 @@ describe('repositories', () => {
     expect((await database.repositories.listCandidates({ sort: 'token', direction: 'asc', limit: 1 })).map((candidate) => candidate.symbol)).toEqual(['ALPHA']);
   });
 
+  it('selects only overdue high-potential candidates for bounded refresh', async () => {
+    database = openDatabase(':memory:');
+    const due = '0x1111111111111111111111111111111111111111' as const;
+    const low = '0x2222222222222222222222222222222222222222' as const;
+    const watched = '0x3333333333333333333333333333333333333333' as const;
+    for (const address of [due, low, watched]) await database.repositories.upsertCandidate({ chainId: 4663, address });
+    const score = (value: number, calculatedAt: string) => ({ version: 'fixture', score: value, confidence: 80, verdict: 'CAUTION' as const, hardFails: [], materialUnknowns: [], components: [], calculatedAt });
+    await database.repositories.saveScore(4663, due, score(70, '2026-01-01T00:00:00.000Z'));
+    await database.repositories.saveScore(4663, low, score(59, '2026-01-01T00:00:00.000Z'));
+    await database.repositories.saveScore(4663, watched, score(80, '2026-01-01T00:00:00.000Z'));
+    await database.repositories.setCandidateState(4663, watched, 'watched', true);
+    expect(await database.repositories.listRefreshCandidates({ assessedBefore: '2026-01-02T00:00:00.000Z', minScore: 60, limit: 50 })).toEqual([{
+      chainId: 4663,
+      address: due,
+      verdict: 'CAUTION',
+      score: 70,
+      lastAssessedAt: '2026-01-01T00:00:00.000Z'
+    }]);
+  });
+
+  it('reports the newest retained snapshot time for one evidence source', async () => {
+    database = openDatabase(':memory:');
+    const address = '0x1111111111111111111111111111111111111111' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address });
+    for (const [at, fingerprint] of [['2026-01-01T00:00:00.000Z', 'old'], ['2026-01-02T00:00:00.000Z', 'new']] as const) {
+      await database.repositories.insertSnapshot({ chainId: 4663, tokenAddress: address, pairAddress: null, dex: null, priceNative: '1', priceUsd: null, liquidityUsd: null, fdvUsd: null, marketCapUsd: null, volume5mUsd: null, volume1hUsd: null, volume6hUsd: null, volume24hUsd: null, buys24h: null, sells24h: null, pairCreatedAt: null, sourceTime: at, ingestedAt: at, source: 'geckoterminal_1h_candle', fingerprint });
+    }
+    expect(await database.repositories.latestSnapshotAtForSource(4663, address, 'geckoterminal_1h_candle')).toBe('2026-01-02T00:00:00.000Z');
+    expect(await database.repositories.latestSnapshotAtForSource(4663, address, 'missing')).toBeNull();
+  });
+
   it('filters and sorts additive asset classifications without migrating candidate rows', async () => {
     database = openDatabase(':memory:');
     const crypto = '0x1111111111111111111111111111111111111111' as const;

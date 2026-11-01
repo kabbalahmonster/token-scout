@@ -129,7 +129,7 @@ export class GeckoTerminalAdapter {
     const quoteAddress = response.meta?.quote?.address?.toLowerCase();
     if (baseAddress !== address.toLowerCase() && quoteAddress === address.toLowerCase()) response = await fetchSide('quote');
     else if (baseAddress !== address.toLowerCase()) return [];
-    return (response.data?.attributes?.ohlcv_list ?? []).flatMap((candle, index) => {
+    return (response.data?.attributes?.ohlcv_list ?? []).flatMap((candle) => {
       const [epoch, , , , close, volume] = candle;
       if (!Number.isFinite(epoch) || !Number.isFinite(close) || close <= 0) return [];
       const at = new Date(epoch * 1000).toISOString();
@@ -138,7 +138,7 @@ export class GeckoTerminalAdapter {
         priceNative: null, priceUsd: String(close), liquidityUsd: null, fdvUsd: null, marketCapUsd: null,
         volume5mUsd: null, volume1hUsd: String(volume), volume6hUsd: null, volume24hUsd: null,
         buys24h: null, sells24h: null, pairCreatedAt: null, sourceTime: at, ingestedAt: at,
-        source: 'geckoterminal_1h_candle', fingerprint: `geckoterminal:1h:${poolAddress}:${epoch}:${index}`
+        source: 'geckoterminal_1h_candle', fingerprint: `geckoterminal:1h:${poolAddress}:${epoch}`
       }];
     });
   }
