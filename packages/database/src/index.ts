@@ -221,6 +221,38 @@ export class Repositories {
     }));
   }
 
+  async listUniverseRefreshCandidates(input: { assessedBefore: string; priorityMinScore: number; limit: number }): Promise<RefreshCandidate[]> {
+    const rows = await this.db.selectFrom('candidates as candidate')
+      .innerJoin('score_history as score', (join) => join
+        .onRef('score.chain_id', '=', 'candidate.chain_id')
+        .onRef('score.token_address', '=', 'candidate.address')
+        .on('score.calculated_at', '=', (eb) => eb.selectFrom('score_history as latest')
+          .select(({ fn }) => fn.max('latest.calculated_at').as('calculated_at'))
+          .whereRef('latest.chain_id', '=', 'candidate.chain_id')
+          .whereRef('latest.token_address', '=', 'candidate.address')))
+      .select(['candidate.chain_id', 'candidate.address', 'candidate.verdict', 'candidate.score', 'score.calculated_at'])
+      .where('candidate.watched', '=', 0)
+      .where('candidate.state', '!=', 'archived')
+      .where('score.calculated_at', '<=', input.assessedBefore)
+      .where((eb) => eb.not(eb.or([
+        eb.and([eb('candidate.verdict', 'in', ['PASS', 'CAUTION']), eb('candidate.score', '>=', input.priorityMinScore)]),
+        eb.exists(eb.selectFrom('score_history as prior_pass').select('prior_pass.id')
+          .whereRef('prior_pass.chain_id', '=', 'candidate.chain_id')
+          .whereRef('prior_pass.token_address', '=', 'candidate.address')
+          .where('prior_pass.verdict', '=', 'PASS'))
+      ])))
+      .orderBy('score.calculated_at', 'asc')
+      .limit(input.limit)
+      .execute();
+    return rows.map((row) => ({
+      chainId: row.chain_id,
+      address: row.address as Address,
+      verdict: row.verdict as Verdict,
+      score: Number(row.score),
+      lastAssessedAt: row.calculated_at
+    }));
+  }
+
   async upsertPair(input: { chainId: number; tokenAddress: Address; pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null }): Promise<void> {
     const now = new Date().toISOString();
     await this.db.insertInto('pairs').values({ chain_id: input.chainId, token_address: input.tokenAddress, pair_address: input.pairAddress, dex: input.dex, url: input.url, quote_token_address: input.quoteTokenAddress, created_at: input.createdAt, liquidity_usd: input.liquidityUsd, last_seen_at: now })
@@ -330,7 +362,12 @@ export class Repositories {
     const existing = await this.db.selectFrom('jobs').select('id').where('kind', '=', kind).where('dedupe_key', '=', dedupeKey).executeTakeFirst();
     return existing ? null : this.enqueue(kind, dedupeKey, payload, runAfter);
   }
-  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> { return this.db.transaction().execute(async (trx) => { const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy('run_after').executeTakeFirst(); if (!row) return null; const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: new Date().toISOString(), locked_by: workerId, attempts: row.attempts + 1, updated_at: new Date().toISOString() }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst(); return updated ? { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts } : null; }); }
+  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> { return this.db.transaction().execute(async (trx) => { const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy(sql`CASE WHEN kind = 'discover' THEN 0 WHEN kind = 'retention' THEN 1 WHEN dedupe_key LIKE 'watch:%' THEN 2 WHEN dedupe_key LIKE 'refresh:%' THEN 4 WHEN dedupe_key LIKE 'universe:%' THEN 5 ELSE 3 END`).orderBy('run_after').executeTakeFirst(); if (!row) return null; const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: new Date().toISOString(), locked_by: workerId, attempts: row.attempts + 1, updated_at: new Date().toISOString() }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst(); return updated ? { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts } : null; }); }
+  async recoverExpiredJobLeases(lockedBefore: string): Promise<number> {
+    const result = await this.db.updateTable('jobs').set({ state: 'queued', locked_at: null, locked_by: null, updated_at: new Date().toISOString() })
+      .where('state', '=', 'running').where('locked_at', '<=', lockedBefore).executeTakeFirst();
+    return Number(result.numUpdatedRows ?? 0n);
+  }
   async finishJob(id: string): Promise<void> { await this.db.updateTable('jobs').set({ state: 'completed', locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).where('id', '=', id).execute(); }
   async failJob(id: string, error: string, retryAt?: string): Promise<void> { await this.db.updateTable('jobs').set({ state: retryAt ? 'queued' : 'failed', run_after: retryAt ?? new Date().toISOString(), last_error: error.slice(0, 500), locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).where('id', '=', id).execute(); }
   async jobStats(): Promise<Record<string, number>> { const rows = await this.db.selectFrom('jobs').select(['state', ({ fn }) => fn.countAll<number>().as('count')]).groupBy('state').execute(); return Object.fromEntries(rows.map((row) => [row.state, Number(row.count)])); }

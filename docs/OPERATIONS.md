@@ -55,14 +55,20 @@ CANDIDATE_REFRESH_ENABLED=true
 CANDIDATE_REFRESH_SECONDS=3600
 CANDIDATE_REFRESH_MIN_SCORE=60
 CANDIDATE_REFRESH_BATCH_SIZE=50
+UNIVERSE_REFRESH_ENABLED=true
+UNIVERSE_REFRESH_SECONDS=259200
+UNIVERSE_REFRESH_BATCH_SIZE=5
+JOB_LEASE_SECONDS=900
 ```
 
 Back up the database, rebuild, and restart only the worker. Confirm that the
 queue remains bounded and that `geckoterminal`, `dexscreener_pairs`,
 `robinhood_rpc`, and `sushi_quote` remain healthy in Operations. Rollback is a
-worker stop, setting `CANDIDATE_REFRESH_ENABLED=false`, rebuilding the previous
+worker stop, setting both refresh switches to `false`, rebuilding the previous
 revision if needed, and restarting the worker; no schema or state migration is
-required.
+required. Discovery has queue precedence over both refresh lanes. A five-job
+wide-lane batch limits how long newly queued discovery can wait even if a
+provider call is already in flight.
 
 ## Housekeeping preview and activation
 

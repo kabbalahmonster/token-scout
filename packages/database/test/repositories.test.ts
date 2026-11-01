@@ -23,6 +23,31 @@ describe('repositories', () => {
     expect(await database.repositories.claimJob('test')).toBeNull();
   });
 
+  it('claims discovery before older maintenance refresh work', async () => {
+    database = openDatabase(':memory:');
+    await database.repositories.enqueue('assess', 'universe:4663:old:1', { lane: 'universe' }, '2026-01-01T00:00:00.000Z');
+    await database.repositories.enqueue('assess', 'refresh:4663:priority:1', { lane: 'priority' }, '2026-01-01T00:00:01.000Z');
+    await database.repositories.enqueue('discover', 'discovery:1', { lane: 'discovery' }, '2026-01-01T00:00:02.000Z');
+    expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'discovery' });
+    expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'priority' });
+    expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'universe' });
+  });
+
+  it('recovers expired running job leases without touching current work', async () => {
+    database = openDatabase(':memory:');
+    await database.repositories.enqueue('discover', 'expired', {});
+    const expired = await database.repositories.claimJob('old-worker');
+    await database.db.updateTable('jobs').set({ locked_at: '2026-01-01T00:00:00.000Z' }).where('id', '=', expired!.id).execute();
+    await database.repositories.enqueue('discover', 'current', {});
+    const current = await database.repositories.claimJob('current-worker');
+    await database.db.updateTable('jobs').set({ locked_at: '2026-01-03T00:00:00.000Z' }).where('id', '=', current!.id).execute();
+    expect(await database.repositories.recoverExpiredJobLeases('2026-01-02T00:00:00.000Z')).toBe(1);
+    expect((await database.db.selectFrom('jobs').select(['dedupe_key', 'state']).orderBy('dedupe_key').execute())).toEqual([
+      { dedupe_key: 'current', state: 'running' },
+      { dedupe_key: 'expired', state: 'queued' }
+    ]);
+  });
+
   it('reports the current event tail for new live-stream subscribers', async () => {
     database = openDatabase(':memory:');
     expect(await database.repositories.latestEventId()).toBe(0);
@@ -80,6 +105,25 @@ describe('repositories', () => {
     expect(await database.repositories.listRefreshCandidates({ assessedBefore: '2026-01-02T00:00:00.000Z', minScore: 60, limit: 50 })).toEqual([
       { chainId: 4663, address: due, verdict: 'CAUTION', score: 70, lastAssessedAt: '2026-01-01T00:00:00.000Z' },
       { chainId: 4663, address: formerPass, verdict: 'CAUTION', score: 55, lastAssessedAt: '2026-01-01T00:00:01.000Z' }
+    ]);
+  });
+
+  it('rotates overdue low-score and rejected candidates outside the priority lane', async () => {
+    database = openDatabase(':memory:');
+    const rejected = '0x1111111111111111111111111111111111111111' as const;
+    const low = '0x2222222222222222222222222222222222222222' as const;
+    const priority = '0x3333333333333333333333333333333333333333' as const;
+    const formerPass = '0x4444444444444444444444444444444444444444' as const;
+    for (const address of [rejected, low, priority, formerPass]) await database.repositories.upsertCandidate({ chainId: 4663, address });
+    const result = (score: number, verdict: 'PASS' | 'CAUTION' | 'REJECT', calculatedAt: string) => ({ version: 'fixture', score, confidence: 80, verdict, hardFails: [], materialUnknowns: [], components: [], calculatedAt });
+    await database.repositories.saveScore(4663, rejected, result(20, 'REJECT', '2026-01-01T00:00:00.000Z'));
+    await database.repositories.saveScore(4663, low, result(50, 'CAUTION', '2026-01-01T00:00:01.000Z'));
+    await database.repositories.saveScore(4663, priority, result(70, 'CAUTION', '2026-01-01T00:00:02.000Z'));
+    await database.repositories.saveScore(4663, formerPass, result(75, 'PASS', '2025-12-31T00:00:00.000Z'));
+    await database.repositories.saveScore(4663, formerPass, result(40, 'CAUTION', '2026-01-01T00:00:03.000Z'));
+    expect(await database.repositories.listUniverseRefreshCandidates({ assessedBefore: '2026-01-02T00:00:00.000Z', priorityMinScore: 60, limit: 5 })).toEqual([
+      { chainId: 4663, address: rejected, verdict: 'REJECT', score: 20, lastAssessedAt: '2026-01-01T00:00:00.000Z' },
+      { chainId: 4663, address: low, verdict: 'CAUTION', score: 50, lastAssessedAt: '2026-01-01T00:00:01.000Z' }
     ]);
   });
 

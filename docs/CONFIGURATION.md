@@ -38,6 +38,26 @@ reassessing every rejected discovery lead would exhaust key-free provider
 budgets and delay useful work. A rejected or low-score token can re-enter the
 lane after ordinary discovery observes enough current evidence to raise it.
 
+For deployments that need a continuously rotating wide view,
+`UNIVERSE_REFRESH_ENABLED` adds a slower lane for every other active retained
+candidate, including low-score and rejected coins. Its default cadence is
+`UNIVERSE_REFRESH_SECONDS=259200` (72 hours), with at most
+`UNIVERSE_REFRESH_BATCH_SIZE=5` queued at once. Priority candidates are
+excluded from this lane because the hourly lane already covers them.
+
+Queue priority is deterministic: discovery, daily retention, watched/manual
+assessment, high-potential refresh, then full-universe refresh. The wide lane
+therefore consumes idle provider capacity but cannot sit ahead of fresh
+discovery. At the current 5,800-candidate scale, a 72-hour rotation averages
+about 81 long-tail assessments per hour before rediscovery removes duplicate
+need. Provider limiters remain authoritative if individual assessments need
+extra calls.
+
+`JOB_LEASE_SECONDS` defaults to 900. A running job whose worker lease is older
+than that is safely returned to the queue. DoomScout jobs perform discovery,
+read-only assessment, or transactional retention, so retrying an abandoned
+lease does not broadcast a transaction or invent evidence.
+
 ## Retention and housekeeping
 
 Raw market snapshots, 5-minute aggregates, and hourly aggregates are always

@@ -9,6 +9,7 @@ describe('retention configuration', () => {
     expect(config.CANDLE_RETENTION_DAYS).toBe(90);
     expect(config.HOURLY_RETENTION_DAYS).toBe(730);
     expect(config.CANDIDATE_REFRESH_ENABLED).toBe(false);
+    expect(config.UNIVERSE_REFRESH_ENABLED).toBe(false);
   });
 
   it('accepts explicit bounded candidate refresh activation', () => {
@@ -21,6 +22,18 @@ describe('retention configuration', () => {
 
   it('rejects an unsafe candidate refresh cadence', () => {
     expect(() => loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', CANDIDATE_REFRESH_SECONDS: '60' })).toThrow('CANDIDATE_REFRESH_SECONDS');
+  });
+
+  it('accepts explicit bounded full-universe refresh activation', () => {
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', UNIVERSE_REFRESH_ENABLED: 'true', UNIVERSE_REFRESH_SECONDS: '172800', UNIVERSE_REFRESH_BATCH_SIZE: '3', JOB_LEASE_SECONDS: '1200' });
+    expect(config.UNIVERSE_REFRESH_ENABLED).toBe(true);
+    expect(config.UNIVERSE_REFRESH_SECONDS).toBe(172800);
+    expect(config.UNIVERSE_REFRESH_BATCH_SIZE).toBe(3);
+    expect(config.JOB_LEASE_SECONDS).toBe(1200);
+  });
+
+  it('rejects an unsafe full-universe refresh cadence', () => {
+    expect(() => loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', UNIVERSE_REFRESH_SECONDS: '3600' })).toThrow('UNIVERSE_REFRESH_SECONDS');
   });
 
   it('accepts explicit comprehensive housekeeping activation', () => {

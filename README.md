@@ -161,6 +161,9 @@ navigation, plain-language explanations, and tooltips for every score/flag.
   change, route recovery, and latest update. Persist named filter presets.
 - Clearly distinguish `unassessed`, `collecting history`, `assessed`, `stale`,
   `rejected`, and `watched`.
+- Optional bounded reassessment has two lanes: hourly high-potential/former-PASS
+  refresh and a slower full-universe rotation. Discovery always has queue
+  precedence, so breadth maintenance cannot starve new lead intake.
 
 ### Token detail
 
