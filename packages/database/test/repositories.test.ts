@@ -68,19 +68,19 @@ describe('repositories', () => {
     const due = '0x1111111111111111111111111111111111111111' as const;
     const low = '0x2222222222222222222222222222222222222222' as const;
     const watched = '0x3333333333333333333333333333333333333333' as const;
-    for (const address of [due, low, watched]) await database.repositories.upsertCandidate({ chainId: 4663, address });
+    const formerPass = '0x4444444444444444444444444444444444444444' as const;
+    for (const address of [due, low, watched, formerPass]) await database.repositories.upsertCandidate({ chainId: 4663, address });
     const score = (value: number, calculatedAt: string) => ({ version: 'fixture', score: value, confidence: 80, verdict: 'CAUTION' as const, hardFails: [], materialUnknowns: [], components: [], calculatedAt });
     await database.repositories.saveScore(4663, due, score(70, '2026-01-01T00:00:00.000Z'));
     await database.repositories.saveScore(4663, low, score(59, '2026-01-01T00:00:00.000Z'));
     await database.repositories.saveScore(4663, watched, score(80, '2026-01-01T00:00:00.000Z'));
+    await database.repositories.saveScore(4663, formerPass, { ...score(75, '2025-12-31T00:00:00.000Z'), verdict: 'PASS' });
+    await database.repositories.saveScore(4663, formerPass, score(55, '2026-01-01T00:00:01.000Z'));
     await database.repositories.setCandidateState(4663, watched, 'watched', true);
-    expect(await database.repositories.listRefreshCandidates({ assessedBefore: '2026-01-02T00:00:00.000Z', minScore: 60, limit: 50 })).toEqual([{
-      chainId: 4663,
-      address: due,
-      verdict: 'CAUTION',
-      score: 70,
-      lastAssessedAt: '2026-01-01T00:00:00.000Z'
-    }]);
+    expect(await database.repositories.listRefreshCandidates({ assessedBefore: '2026-01-02T00:00:00.000Z', minScore: 60, limit: 50 })).toEqual([
+      { chainId: 4663, address: due, verdict: 'CAUTION', score: 70, lastAssessedAt: '2026-01-01T00:00:00.000Z' },
+      { chainId: 4663, address: formerPass, verdict: 'CAUTION', score: 55, lastAssessedAt: '2026-01-01T00:00:01.000Z' }
+    ]);
   });
 
   it('reports the newest retained snapshot time for one evidence source', async () => {

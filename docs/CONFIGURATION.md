@@ -18,10 +18,13 @@ budgets conservative on the key-free endpoint.
 `CANDIDATE_REFRESH_ENABLED` defaults to `false`, preserving legacy discovery-
 only behavior for existing deployments. When explicitly enabled, the worker
 also reassesses unwatched `PASS`/`CAUTION` candidates whose current score is at
-least `CANDIDATE_REFRESH_MIN_SCORE` (60 by default). The oldest assessment is
-served first, no more than `CANDIDATE_REFRESH_BATCH_SIZE` (50) candidates stay
-queued, and each candidate becomes due after `CANDIDATE_REFRESH_SECONDS` (3600).
-Watched candidates keep their separate faster cadence.
+least `CANDIDATE_REFRESH_MIN_SCORE` (60 by default), plus every candidate that
+has ever held a retained `PASS` verdict. This prevents an evidence gap from
+excluding the very coin that needs its history renewed. The oldest assessment
+is served first, no more than `CANDIDATE_REFRESH_BATCH_SIZE` (50) candidates
+stay queued, and each candidate becomes due after
+`CANDIDATE_REFRESH_SECONDS` (3600). Watched candidates keep their separate
+faster cadence.
 
 Refresh assessments update the latest market/contract/route evidence and
 renew the attributed GeckoTerminal hourly OHLCV window when it is older than

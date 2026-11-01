@@ -201,7 +201,13 @@ export class Repositories {
       .where('candidate.watched', '=', 0)
       .where('candidate.state', '!=', 'archived')
       .where('candidate.verdict', 'in', ['PASS', 'CAUTION'])
-      .where('candidate.score', '>=', input.minScore)
+      .where((eb) => eb.or([
+        eb('candidate.score', '>=', input.minScore),
+        eb.exists(eb.selectFrom('score_history as prior_pass').select('prior_pass.id')
+          .whereRef('prior_pass.chain_id', '=', 'candidate.chain_id')
+          .whereRef('prior_pass.token_address', '=', 'candidate.address')
+          .where('prior_pass.verdict', '=', 'PASS'))
+      ]))
       .where('score.calculated_at', '<=', input.assessedBefore)
       .orderBy('score.calculated_at', 'asc')
       .limit(input.limit)
