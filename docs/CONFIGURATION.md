@@ -52,10 +52,12 @@ candidate, including low-score and rejected coins. Its default cadence is
 `UNIVERSE_REFRESH_BATCH_SIZE=5` queued at once. Priority candidates are
 excluded from this lane because the hourly lane already covers them.
 
-Queue priority is deterministic: discovery, daily retention, watched/manual
-assessment, high-potential refresh, then full-universe refresh. The wide lane
-therefore consumes idle provider capacity but cannot sit ahead of fresh
-discovery. At the current 5,800-candidate scale, a 72-hour rotation averages
+Queue priority is deterministic: single-contract manual assessment, discovery,
+daily retention, watched assessment, discovery/import assessment,
+high-potential refresh, then full-universe refresh. A manual assessment is the
+next job claimed after the current non-preemptible job finishes. The wide lane
+therefore consumes idle provider capacity but cannot sit ahead of operator or
+fresh-discovery work. At the current 5,800-candidate scale, a 72-hour rotation averages
 about 81 long-tail assessments per hour before rediscovery removes duplicate
 need. Provider limiters remain authoritative if individual assessments need
 extra calls.

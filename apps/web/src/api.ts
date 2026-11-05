@@ -12,12 +12,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export interface CandidateDetail { candidate: Candidate; swings: SwingStudy | null; route: RouteAssessment | null; contract: ContractScan | null; score: ScoreResult | null; pairs: Array<{ pairAddress: string; dex: string; liquidityUsd: string | null }> }
+export interface QueueStatus { state: string; position: number | null; queuedAhead: number; estimatedWaitSeconds: number; createdAt: string; updatedAt: string }
+export interface AssessmentQueued { jobId: string; chainId: number; address: string; state: 'queued'; queue: QueueStatus | null }
 export const client = {
   candidates: (query = '') => api<{ data: Candidate[]; meta: { generatedAt: string } }>(`/api/v1/candidates${query}`),
   candidate: (chainId: number, address: string) => api<CandidateDetail>(`/api/v1/candidates/${chainId}/${address}`),
   setCanonicalPair: (chainId: number, address: string, pairAddress: string | null) => api<void>(`/api/v1/candidates/${chainId}/${address}/canonical-pair`, { method: 'PATCH', body: JSON.stringify({ pairAddress }) }),
   history: (chainId: number, address: string) => api<{ data: MarketSnapshot[] }>(`/api/v1/candidates/${chainId}/${address}/history`),
-  assess: (address: string) => api<{ jobId: string }>('/api/v1/candidates/assess', { method: 'POST', body: JSON.stringify({ chainId: 4663, address }) }),
+  assess: (address: string) => api<AssessmentQueued>('/api/v1/candidates/assess', { method: 'POST', body: JSON.stringify({ chainId: 4663, address }) }),
+  job: (jobId: string) => api<QueueStatus>(`/api/v1/jobs/${jobId}`),
   import: (csv: string) => api<{ accepted: number; estimatedRequests: number }>('/api/v1/candidates/import', { method: 'POST', body: JSON.stringify({ chainId: 4663, csv }) }),
   sources: () => api<{ data: SourceStatus[]; generatedAt: string }>('/api/v1/sources/status'),
   operations: () => api<any>('/api/v1/operations'),

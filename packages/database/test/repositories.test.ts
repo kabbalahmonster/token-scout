@@ -33,6 +33,18 @@ describe('repositories', () => {
     expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'universe' });
   });
 
+  it('claims manual assessments before discovery and reports their live queue position', async () => {
+    database = openDatabase(':memory:');
+    await database.repositories.enqueue('discover', 'discovery:1', { lane: 'discovery' }, '2026-01-01T00:00:00.000Z');
+    const firstManual = await database.repositories.enqueue('assess', 'manual:4663:first:1', { lane: 'manual-one' }, '2026-01-01T00:00:01.000Z');
+    const secondManual = await database.repositories.enqueue('assess', 'manual:4663:second:1', { lane: 'manual-two' }, '2026-01-01T00:00:02.000Z');
+    expect((await database.repositories.jobQueueStatus(firstManual!))?.position).toBe(1);
+    expect((await database.repositories.jobQueueStatus(secondManual!))?.position).toBe(2);
+    expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'manual-one' });
+    expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'manual-two' });
+    expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'discovery' });
+  });
+
   it('recovers expired running job leases without touching current work', async () => {
     database = openDatabase(':memory:');
     await database.repositories.enqueue('discover', 'expired', {});

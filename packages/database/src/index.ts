@@ -362,7 +362,45 @@ export class Repositories {
     const existing = await this.db.selectFrom('jobs').select('id').where('kind', '=', kind).where('dedupe_key', '=', dedupeKey).executeTakeFirst();
     return existing ? null : this.enqueue(kind, dedupeKey, payload, runAfter);
   }
-  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> { return this.db.transaction().execute(async (trx) => { const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy(sql`CASE WHEN kind = 'discover' THEN 0 WHEN kind = 'retention' THEN 1 WHEN dedupe_key LIKE 'watch:%' THEN 2 WHEN dedupe_key LIKE 'refresh:%' THEN 4 WHEN dedupe_key LIKE 'universe:%' THEN 5 ELSE 3 END`).orderBy('run_after').executeTakeFirst(); if (!row) return null; const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: new Date().toISOString(), locked_by: workerId, attempts: row.attempts + 1, updated_at: new Date().toISOString() }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst(); return updated ? { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts } : null; }); }
+  private jobPriority(kind: string, dedupeKey: string): number {
+    if (dedupeKey.startsWith('manual:')) return 0;
+    if (kind === 'discover') return 1;
+    if (kind === 'retention') return 2;
+    if (dedupeKey.startsWith('watch:')) return 3;
+    if (dedupeKey.startsWith('refresh:')) return 5;
+    if (dedupeKey.startsWith('universe:')) return 6;
+    return 4;
+  }
+
+  async jobQueueStatus(id: string): Promise<{ state: string; position: number | null; queuedAhead: number; estimatedWaitSeconds: number; createdAt: string; updatedAt: string } | null> {
+    const job = await this.db.selectFrom('jobs').selectAll().where('id', '=', id).executeTakeFirst();
+    if (!job) return null;
+    if (job.state !== 'queued') return { state: job.state, position: job.state === 'running' ? 0 : null, queuedAhead: 0, estimatedWaitSeconds: 0, createdAt: job.created_at, updatedAt: job.updated_at };
+
+    const due = await this.db.selectFrom('jobs').select(['id', 'kind', 'dedupe_key', 'run_after', 'created_at']).where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).execute();
+    due.sort((left, right) => this.jobPriority(left.kind, left.dedupe_key) - this.jobPriority(right.kind, right.dedupe_key)
+      || left.run_after.localeCompare(right.run_after)
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id));
+    const index = due.findIndex((candidate) => candidate.id === id);
+    const queuedAhead = Math.max(0, index);
+    const running = await this.db.selectFrom('jobs').select(['kind', 'dedupe_key', 'locked_at']).where('state', '=', 'running').orderBy('locked_at').executeTakeFirst();
+    const runningEstimate = running
+      ? running.kind === 'discover' ? 180 : running.kind === 'retention' ? 60 : 15
+      : 0;
+    const runningElapsed = running?.locked_at ? Math.max(0, (Date.now() - Date.parse(running.locked_at)) / 1000) : 0;
+    const queuedEstimate = due.slice(0, queuedAhead).reduce((seconds, candidate) => seconds + (candidate.kind === 'discover' ? 180 : candidate.kind === 'retention' ? 60 : 15), 0);
+    return {
+      state: job.state,
+      position: index >= 0 ? index + 1 : null,
+      queuedAhead,
+      estimatedWaitSeconds: Math.max(0, Math.ceil(runningEstimate - runningElapsed + queuedEstimate)),
+      createdAt: job.created_at,
+      updatedAt: job.updated_at
+    };
+  }
+
+  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> { return this.db.transaction().execute(async (trx) => { const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' THEN 0 WHEN kind = 'discover' THEN 1 WHEN kind = 'retention' THEN 2 WHEN dedupe_key LIKE 'watch:%' THEN 3 WHEN dedupe_key LIKE 'refresh:%' THEN 5 WHEN dedupe_key LIKE 'universe:%' THEN 6 ELSE 4 END`).orderBy('run_after').orderBy('created_at').orderBy('id').executeTakeFirst(); if (!row) return null; const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: new Date().toISOString(), locked_by: workerId, attempts: row.attempts + 1, updated_at: new Date().toISOString() }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst(); return updated ? { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts } : null; }); }
   async recoverExpiredJobLeases(lockedBefore: string): Promise<number> {
     const result = await this.db.updateTable('jobs').set({ state: 'queued', locked_at: null, locked_by: null, updated_at: new Date().toISOString() })
       .where('state', '=', 'running').where('locked_at', '<=', lockedBefore).executeTakeFirst();

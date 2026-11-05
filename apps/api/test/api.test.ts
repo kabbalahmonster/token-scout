@@ -21,6 +21,10 @@ describe('API integration', () => {
     app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
     const response = await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', payload: { chainId: 4663, address: '0x1111111111111111111111111111111111111111' } });
     expect(response.statusCode).toBe(202);
+    expect(response.json().queue).toMatchObject({ state: 'queued', position: 1, queuedAhead: 0 });
+    const status = await app.inject({ method: 'GET', url: `/api/v1/jobs/${response.json().jobId}` });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({ state: 'queued', position: 1 });
     expect((await database.repositories.listCandidates())[0]?.state).toBe('queued');
   });
 

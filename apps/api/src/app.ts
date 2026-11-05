@@ -90,7 +90,13 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
     const address = normalizeAddress(body.address);
     await database.repositories.upsertCandidate({ chainId, address, state: 'queued' });
     const jobId = await database.repositories.enqueue('assess', `manual:${chainId}:${address}:${Date.now()}`, { chainId, address });
-    return reply.code(202).send({ jobId, chainId, address, state: 'queued' });
+    const queue = jobId ? await database.repositories.jobQueueStatus(jobId) : null;
+    return reply.code(202).send({ jobId, chainId, address, state: 'queued', queue });
+  });
+
+  app.get('/api/v1/jobs/:jobId', { schema: { tags: ['operations'], params: { type: 'object', required: ['jobId'], properties: { jobId: { type: 'string', format: 'uuid' } } } } }, async (request, reply) => {
+    const status = await database.repositories.jobQueueStatus((request.params as { jobId: string }).jobId);
+    return status ?? reply.code(404).send({ error: 'not_found' });
   });
 
   app.post('/api/v1/candidates/import', { schema: { tags: ['candidates'], body: { type: 'object', additionalProperties: false, properties: { chainId: { type: 'integer', minimum: 1 }, addresses: { type: 'array', maxItems: 500, items: { type: 'string' } }, csv: { type: 'string', maxLength: 100000 } }, anyOf: [{ required: ['addresses'] }, { required: ['csv'] }] } } }, async (request, reply) => {

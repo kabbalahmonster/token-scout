@@ -8,4 +8,7 @@ the same token unless public read mode was explicitly enabled.
 SSE at `/api/v1/events` emits retained score changes and supports
 `Last-Event-ID`. History exports support JSON and CSV. Recommendation exports
 support JSON and `.env`, both carrying schema/methodology versions and an
-operator-review marker. The API never contains an execution endpoint.
+operator-review marker. A manual assessment response includes its initial queue
+position and estimated wait; `GET /api/v1/jobs/:jobId` provides live queued,
+running, completed, or failed status for UI polling. The API never contains an
+execution endpoint.
