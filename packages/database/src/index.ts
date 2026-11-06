@@ -129,9 +129,12 @@ export class Repositories {
     // issued snapshot, swing, and route queries for every candidate (N+1),
     // which made a broad Scoutboard request perform thousands of SQLite calls.
     const [snapshotResult, swingResult, routeResult] = await Promise.all([
-      sql<SnapshotTable & { rn: number }>`SELECT * FROM (SELECT market_snapshots.*, ROW_NUMBER() OVER (PARTITION BY chain_id, token_address ORDER BY ingested_at DESC, id DESC) AS rn FROM market_snapshots) WHERE rn = 1`.execute(this.db),
-      sql<Pick<SwingStudyTable, 'chain_id' | 'token_address' | 'result_json'> & { rn: number }>`SELECT chain_id, token_address, result_json, rn FROM (SELECT chain_id, token_address, result_json, ROW_NUMBER() OVER (PARTITION BY chain_id, token_address ORDER BY generated_at DESC, id DESC) AS rn FROM swing_studies) WHERE rn = 1`.execute(this.db),
-      sql<Pick<RouteAssessmentTable, 'chain_id' | 'token_address' | 'result_json'> & { rn: number }>`SELECT chain_id, token_address, result_json, rn FROM (SELECT chain_id, token_address, result_json, ROW_NUMBER() OVER (PARTITION BY chain_id, token_address ORDER BY assessed_at DESC, id DESC) AS rn FROM route_assessments) WHERE rn = 1`.execute(this.db)
+      // Never include raw_evidence_json here. It can be tens of kilobytes per
+      // snapshot, and selecting it made every Scoutboard refresh read the
+      // entire multi-gigabyte evidence corpus before discarding the column.
+      sql<Omit<SnapshotTable, 'raw_evidence_json'>>`SELECT id, chain_id, token_address, pair_address, dex, price_native, price_usd, liquidity_usd, fdv_usd, market_cap_usd, volume_5m_usd, volume_1h_usd, volume_6h_usd, volume_24h_usd, buys_24h, sells_24h, pair_created_at, source_time, ingested_at, source, fingerprint FROM market_snapshots WHERE id IN (SELECT (SELECT latest.id FROM market_snapshots AS latest WHERE latest.chain_id = candidate.chain_id AND latest.token_address = candidate.address ORDER BY latest.ingested_at DESC, latest.id DESC LIMIT 1) FROM candidates AS candidate)`.execute(this.db),
+      sql<Pick<SwingStudyTable, 'chain_id' | 'token_address' | 'result_json'>>`SELECT chain_id, token_address, result_json FROM swing_studies WHERE id IN (SELECT (SELECT latest.id FROM swing_studies AS latest WHERE latest.chain_id = candidate.chain_id AND latest.token_address = candidate.address ORDER BY latest.generated_at DESC, latest.id DESC LIMIT 1) FROM candidates AS candidate)`.execute(this.db),
+      sql<Pick<RouteAssessmentTable, 'chain_id' | 'token_address' | 'result_json'>>`SELECT chain_id, token_address, result_json FROM route_assessments WHERE id IN (SELECT (SELECT latest.id FROM route_assessments AS latest WHERE latest.chain_id = candidate.chain_id AND latest.token_address = candidate.address ORDER BY latest.assessed_at DESC, latest.id DESC LIMIT 1) FROM candidates AS candidate)`.execute(this.db)
     ]);
     const key = (chainId: number, address: string) => `${chainId}:${address}`;
     const snapshots = new Map(snapshotResult.rows.map((row) => [key(row.chain_id, row.token_address), snapshotFromRow(row)]));
