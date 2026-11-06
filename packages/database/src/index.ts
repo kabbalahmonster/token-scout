@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Decimal } from 'decimal.js';
 import { classifyAssetType, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
-import type { DatabaseSchema, RouteAssessmentTable, SnapshotTable, SwingStudyTable } from './schema.js';
+import type { DatabaseSchema } from './schema.js';
 
 const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -45,13 +45,19 @@ function candidateFromRow(row: DatabaseSchema['candidates'] & { latest_json?: st
     chainId: row.chain_id, address: row.address as Address, symbol: row.symbol, name: row.name, decimals: row.decimals, totalSupply: row.total_supply, assetType: classifyAssetType(row.symbol, row.name),
     state: row.state as CandidateState, canonicalPair: row.canonical_pair as Address | null, discoveredAt: row.discovered_at, updatedAt: row.updated_at,
     watched: row.watched === 1, score: row.score, verdict: row.verdict as Verdict, confidence: row.confidence, scoreVersion: row.score_version,
-    flags: visibleRiskFlags(JSON.parse(row.flags_json) as RiskFlag[]), latestSnapshot: row.latest_json ? snapshotFromRow(JSON.parse(row.latest_json)) : null,
+    flags: visibleRiskFlags(JSON.parse(row.flags_json) as RiskFlag[]), latestSnapshot: row.latest_json ? JSON.parse(row.latest_json) as MarketSnapshot : row.latest_snapshot_json ? JSON.parse(row.latest_snapshot_json) as MarketSnapshot : null,
+    swingScore: row.swing_score, swingEventsPerDay: row.swing_events_per_day,
+    routeState: row.route_state as RouteAssessment['state'], routeRecoveryPct: row.route_recovery_pct,
     assessmentError: row.last_error_code && row.last_error_message && row.last_error_at ? { code: row.last_error_code, message: row.last_error_message, at: row.last_error_at } : null
   };
 }
 
 function visibleRiskFlags(flags: RiskFlag[]): RiskFlag[] {
   return flags.filter((flag) => flag.code !== 'source_verification');
+}
+
+function riskFlagSummaries(flags: RiskFlag[]): RiskFlag[] {
+  return visibleRiskFlags(flags).filter((flag) => flag.state === 'detected').map((flag) => ({ ...flag, explanation: '', evidence: [] }));
 }
 
 function snapshotFromRow(row: any): MarketSnapshot {
@@ -90,7 +96,7 @@ export class Repositories {
 
   async upsertCandidate(input: { chainId: number; address: Address; symbol?: string | null; name?: string | null; state?: CandidateState }): Promise<void> {
     const now = new Date().toISOString();
-    await this.db.insertInto('candidates').values({ chain_id: input.chainId, address: input.address, symbol: input.symbol ?? null, name: input.name ?? null, decimals: null, total_supply: null, state: input.state ?? 'discovered', canonical_pair: null, canonical_pair_override: null, discovered_at: now, updated_at: now, watched: 0, score: null, verdict: 'UNASSESSED', confidence: 0, score_version: null, flags_json: '[]' })
+    await this.db.insertInto('candidates').values({ chain_id: input.chainId, address: input.address, symbol: input.symbol ?? null, name: input.name ?? null, decimals: null, total_supply: null, state: input.state ?? 'discovered', canonical_pair: null, canonical_pair_override: null, discovered_at: now, updated_at: now, watched: 0, score: null, verdict: 'UNASSESSED', confidence: 0, score_version: null, flags_json: '[]', detected_flags_json: '[]', latest_snapshot_json: null, latest_snapshot_at: null, swing_score: null, swing_events_per_day: null, route_state: 'not_attempted', route_recovery_pct: null })
       .onConflict((conflict) => conflict.columns(['chain_id', 'address']).doUpdateSet({ symbol: (eb) => eb.fn.coalesce('excluded.symbol', 'candidates.symbol'), name: (eb) => eb.fn.coalesce('excluded.name', 'candidates.name'), updated_at: now })).execute();
   }
 
@@ -116,38 +122,22 @@ export class Repositories {
   }
 
   async listCandidates(filters: CandidateFilters = {}): Promise<Candidate[]> {
-    let query = this.db.selectFrom('candidates').selectAll();
+    let query = this.db.selectFrom('candidates').select([
+      'chain_id', 'address', 'symbol', 'name', 'decimals', 'total_supply', 'state', 'canonical_pair', 'canonical_pair_override',
+      'discovered_at', 'updated_at', 'watched', 'score', 'verdict', 'confidence', 'score_version',
+      'detected_flags_json as flags_json', 'detected_flags_json', 'latest_snapshot_json', 'latest_snapshot_at',
+      'swing_score', 'swing_events_per_day', 'route_state', 'route_recovery_pct',
+      'last_error_code', 'last_error_message', 'last_error_at'
+    ]);
     if (filters.state) query = query.where('state', '=', filters.state);
     if (filters.watched !== undefined) query = query.where('watched', '=', filters.watched ? 1 : 0);
     if (filters.verdict) query = query.where('verdict', '=', filters.verdict);
     if (filters.minScore !== undefined) query = query.where('score', '>=', filters.minScore);
     if (filters.search) query = query.where((eb) => eb.or([eb('address', 'like', `%${filters.search}%`), eb('symbol', 'like', `%${filters.search}%`), eb('name', 'like', `%${filters.search}%`)]));
-    // Enrichment-backed sorts (liquidity, volume, route, flags, and swing) are
-    // computed below, so pagination must happen after filtering and sorting.
+    // Summary-backed sorts are computed below, so pagination must happen after
+    // filtering and sorting without touching the large evidence tables.
     const rows = await query.orderBy('score', 'desc').execute();
-    // Load enrichment in three set-based queries. The former implementation
-    // issued snapshot, swing, and route queries for every candidate (N+1),
-    // which made a broad Scoutboard request perform thousands of SQLite calls.
-    const [snapshotResult, swingResult, routeResult] = await Promise.all([
-      // Never include raw_evidence_json here. It can be tens of kilobytes per
-      // snapshot, and selecting it made every Scoutboard refresh read the
-      // entire multi-gigabyte evidence corpus before discarding the column.
-      sql<Omit<SnapshotTable, 'raw_evidence_json'>>`SELECT id, chain_id, token_address, pair_address, dex, price_native, price_usd, liquidity_usd, fdv_usd, market_cap_usd, volume_5m_usd, volume_1h_usd, volume_6h_usd, volume_24h_usd, buys_24h, sells_24h, pair_created_at, source_time, ingested_at, source, fingerprint FROM market_snapshots WHERE id IN (SELECT (SELECT latest.id FROM market_snapshots AS latest WHERE latest.chain_id = candidate.chain_id AND latest.token_address = candidate.address ORDER BY latest.ingested_at DESC, latest.id DESC LIMIT 1) FROM candidates AS candidate)`.execute(this.db),
-      sql<Pick<SwingStudyTable, 'chain_id' | 'token_address' | 'result_json'>>`SELECT chain_id, token_address, result_json FROM swing_studies WHERE id IN (SELECT (SELECT latest.id FROM swing_studies AS latest WHERE latest.chain_id = candidate.chain_id AND latest.token_address = candidate.address ORDER BY latest.generated_at DESC, latest.id DESC LIMIT 1) FROM candidates AS candidate)`.execute(this.db),
-      sql<Pick<RouteAssessmentTable, 'chain_id' | 'token_address' | 'result_json'>>`SELECT chain_id, token_address, result_json FROM route_assessments WHERE id IN (SELECT (SELECT latest.id FROM route_assessments AS latest WHERE latest.chain_id = candidate.chain_id AND latest.token_address = candidate.address ORDER BY latest.assessed_at DESC, latest.id DESC LIMIT 1) FROM candidates AS candidate)`.execute(this.db)
-    ]);
-    const key = (chainId: number, address: string) => `${chainId}:${address}`;
-    const snapshots = new Map(snapshotResult.rows.map((row) => [key(row.chain_id, row.token_address), snapshotFromRow(row)]));
-    const studies = new Map(swingResult.rows.map((row) => [key(row.chain_id, row.token_address), JSON.parse(row.result_json) as SwingStudy]));
-    const routes = new Map(routeResult.rows.map((row) => [key(row.chain_id, row.token_address), JSON.parse(row.result_json) as RouteAssessment]));
-    let candidates = rows.map((row) => {
-      const enrichmentKey = key(row.chain_id, row.address);
-      const latestSnapshot = snapshots.get(enrichmentKey) ?? null;
-      const study = studies.get(enrichmentKey) ?? null;
-      const route = routes.get(enrichmentKey) ?? null;
-      const preferred = study?.results.find((result) => result.threshold === 0.05 && result.horizon === '7d') ?? study?.results[0];
-      return { ...candidateFromRow(row), latestSnapshot, swingScore: preferred?.suitability ?? null, swingEventsPerDay: preferred?.eventsPerDay ?? null, routeState: route?.state ?? 'not_attempted' as const, routeRecoveryPct: route?.recoveryPct ?? null };
-    });
+    let candidates = rows.map(candidateFromRow);
     if (filters.assetType) candidates = candidates.filter((candidate) => candidate.assetType === filters.assetType);
     if (filters.minLiquidityUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.liquidityUsd ?? -1) >= filters.minLiquidityUsd!);
     if (filters.minVolumeUsd !== undefined) candidates = candidates.filter((candidate) => Number(candidate.latestSnapshot?.volume24hUsd ?? -1) >= filters.minVolumeUsd!);
@@ -279,7 +269,13 @@ export class Repositories {
 
   async insertSnapshot(snapshot: Omit<MarketSnapshot, 'id'>, rawEvidence?: unknown): Promise<number | null> {
     const result = await this.db.insertInto('market_snapshots').values({ chain_id: snapshot.chainId, token_address: snapshot.tokenAddress, pair_address: snapshot.pairAddress, dex: snapshot.dex, price_native: snapshot.priceNative, price_usd: snapshot.priceUsd, liquidity_usd: snapshot.liquidityUsd, fdv_usd: snapshot.fdvUsd, market_cap_usd: snapshot.marketCapUsd, volume_5m_usd: snapshot.volume5mUsd, volume_1h_usd: snapshot.volume1hUsd, volume_6h_usd: snapshot.volume6hUsd, volume_24h_usd: snapshot.volume24hUsd, buys_24h: snapshot.buys24h, sells_24h: snapshot.sells24h, pair_created_at: snapshot.pairCreatedAt, source_time: snapshot.sourceTime, ingested_at: snapshot.ingestedAt, source: snapshot.source, fingerprint: snapshot.fingerprint, raw_evidence_json: rawEvidence === undefined ? null : JSON.stringify(rawEvidence).slice(0, 64_000) }).onConflict((conflict) => conflict.columns(['chain_id', 'token_address', 'fingerprint']).doNothing()).returning('id').executeTakeFirst();
-    if (result?.id !== undefined) await Promise.all([this.updateAggregate(snapshot, 300), this.updateAggregate(snapshot, 3600)]);
+    if (result?.id !== undefined) await Promise.all([
+      this.updateAggregate(snapshot, 300),
+      this.updateAggregate(snapshot, 3600),
+      this.db.updateTable('candidates').set({ latest_snapshot_json: JSON.stringify({ ...snapshot, id: Number(result.id) }), latest_snapshot_at: snapshot.ingestedAt })
+        .where('chain_id', '=', snapshot.chainId).where('address', '=', snapshot.tokenAddress)
+        .where((eb) => eb.or([eb('latest_snapshot_at', 'is', null), eb('latest_snapshot_at', '<=', snapshot.ingestedAt)])).execute()
+    ]);
     return result?.id ?? null;
   }
 
@@ -336,13 +332,17 @@ export class Repositories {
   }
 
   async saveSwingStudy(chainId: number, address: Address, study: SwingStudy): Promise<void> {
-    await this.db.insertInto('swing_studies').values({ chain_id: chainId, token_address: address, algorithm_version: study.algorithmVersion, generated_at: study.generatedAt, parameters_json: JSON.stringify(study.parameters), result_json: JSON.stringify(study) }).onConflict((conflict) => conflict.columns(['chain_id', 'token_address', 'algorithm_version', 'generated_at']).doNothing()).execute();
+    const preferred = study.results.find((result) => result.threshold === 0.05 && result.horizon === '7d') ?? study.results[0];
+    await this.db.transaction().execute(async (trx) => {
+      await trx.insertInto('swing_studies').values({ chain_id: chainId, token_address: address, algorithm_version: study.algorithmVersion, generated_at: study.generatedAt, parameters_json: JSON.stringify(study.parameters), result_json: JSON.stringify(study) }).onConflict((conflict) => conflict.columns(['chain_id', 'token_address', 'algorithm_version', 'generated_at']).doNothing()).execute();
+      await trx.updateTable('candidates').set({ swing_score: preferred?.suitability ?? null, swing_events_per_day: preferred?.eventsPerDay ?? null }).where('chain_id', '=', chainId).where('address', '=', address).execute();
+    });
   }
   async latestSwingStudy(chainId: number, address: Address): Promise<SwingStudy | null> { const row = await this.db.selectFrom('swing_studies').select('result_json').where('chain_id', '=', chainId).where('token_address', '=', address).orderBy('generated_at', 'desc').executeTakeFirst(); return row ? JSON.parse(row.result_json) as SwingStudy : null; }
 
-  async saveContractScan(scan: ContractScan): Promise<void> { await this.db.insertInto('contract_scans').values({ chain_id: scan.chainId, token_address: scan.address, scan_version: scan.version, code_hash: scan.codeHash, scanned_at: scan.scannedAt, result_json: JSON.stringify(scan) }).execute(); await this.db.updateTable('candidates').set({ flags_json: JSON.stringify(scan.flags), updated_at: scan.scannedAt }).where('chain_id', '=', scan.chainId).where('address', '=', scan.address).execute(); }
+  async saveContractScan(scan: ContractScan): Promise<void> { await this.db.insertInto('contract_scans').values({ chain_id: scan.chainId, token_address: scan.address, scan_version: scan.version, code_hash: scan.codeHash, scanned_at: scan.scannedAt, result_json: JSON.stringify(scan) }).execute(); await this.db.updateTable('candidates').set({ flags_json: JSON.stringify(scan.flags), detected_flags_json: JSON.stringify(riskFlagSummaries(scan.flags)), updated_at: scan.scannedAt }).where('chain_id', '=', scan.chainId).where('address', '=', scan.address).execute(); }
   async latestContractScan(chainId: number, address: Address): Promise<ContractScan | null> { const row = await this.db.selectFrom('contract_scans').select('result_json').where('chain_id', '=', chainId).where('token_address', '=', address).orderBy('scanned_at', 'desc').executeTakeFirst(); if (!row) return null; const scan = JSON.parse(row.result_json) as ContractScan; return { ...scan, flags: visibleRiskFlags(scan.flags) }; }
-  async saveRouteAssessment(chainId: number, address: Address, assessment: RouteAssessment): Promise<void> { await this.db.insertInto('route_assessments').values({ chain_id: chainId, token_address: address, assessed_at: new Date().toISOString(), provider: assessment.buy?.provider ?? null, state: assessment.state, result_json: JSON.stringify(assessment) }).execute(); }
+  async saveRouteAssessment(chainId: number, address: Address, assessment: RouteAssessment): Promise<void> { await this.db.transaction().execute(async (trx) => { await trx.insertInto('route_assessments').values({ chain_id: chainId, token_address: address, assessed_at: new Date().toISOString(), provider: assessment.buy?.provider ?? null, state: assessment.state, result_json: JSON.stringify(assessment) }).execute(); await trx.updateTable('candidates').set({ route_state: assessment.state, route_recovery_pct: assessment.recoveryPct }).where('chain_id', '=', chainId).where('address', '=', address).execute(); }); }
   async latestRouteAssessment(chainId: number, address: Address): Promise<RouteAssessment | null> { const row = await this.db.selectFrom('route_assessments').select('result_json').where('chain_id', '=', chainId).where('token_address', '=', address).orderBy('assessed_at', 'desc').executeTakeFirst(); return row ? JSON.parse(row.result_json) as RouteAssessment : null; }
   async saveScore(chainId: number, address: Address, score: ScoreResult): Promise<void> { await this.db.transaction().execute(async (trx) => { const candidate = await trx.selectFrom('candidates').select('watched').where('chain_id', '=', chainId).where('address', '=', address).executeTakeFirst(); await trx.insertInto('score_history').values({ chain_id: chainId, token_address: address, score_version: score.version, calculated_at: score.calculatedAt, score: score.score, confidence: score.confidence, verdict: score.verdict, result_json: JSON.stringify(score) }).execute(); await trx.updateTable('candidates').set({ score: score.score, confidence: score.confidence, verdict: score.verdict, score_version: score.version, state: candidate?.watched === 1 ? 'watched' : 'assessed', last_error_code: null, last_error_message: null, last_error_at: null, updated_at: score.calculatedAt }).where('chain_id', '=', chainId).where('address', '=', address).execute(); }); await this.emit('score.updated', { chainId, address, score }); }
   async latestScore(chainId: number, address: Address): Promise<ScoreResult | null> { const row = await this.db.selectFrom('score_history').select('result_json').where('chain_id', '=', chainId).where('token_address', '=', address).orderBy('calculated_at', 'desc').executeTakeFirst(); return row ? JSON.parse(row.result_json) as ScoreResult : null; }

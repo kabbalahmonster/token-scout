@@ -4,6 +4,9 @@ export interface CandidateTable {
   chain_id: number; address: string; symbol: string | null; name: string | null; decimals: number | null; total_supply: string | null;
   state: string; canonical_pair: string | null; canonical_pair_override: string | null; discovered_at: string; updated_at: string;
   watched: number; score: number | null; verdict: string; confidence: number; score_version: string | null; flags_json: string;
+  detected_flags_json: string; latest_snapshot_json: string | null; latest_snapshot_at: string | null;
+  swing_score: number | null; swing_events_per_day: number | null;
+  route_state: string; route_recovery_pct: number | null;
   last_error_code: string | null; last_error_message: string | null; last_error_at: string | null;
 }
 export interface SnapshotTable {

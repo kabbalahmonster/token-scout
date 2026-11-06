@@ -82,11 +82,15 @@ describe('repositories', () => {
       metadata: { symbol: null, name: null, decimals: null, totalSupply: null },
       flags: [
         { code: 'source_verification', label: 'retired', state: 'unknown', severity: 'info', confidence: 0, explanation: 'retired', evidence: [] },
-        { code: 'owner_status', label: 'Owner status', state: 'unknown', severity: 'info', confidence: 0, explanation: 'unknown', evidence: [] }
+        { code: 'owner_status', label: 'Owner status', state: 'unknown', severity: 'info', confidence: 0, explanation: 'unknown', evidence: [] },
+        { code: 'blacklist_selector', label: 'Blacklist controls', state: 'detected', severity: 'warning', confidence: 75, explanation: 'full detail', evidence: [{ source: 'fixture', observedAt: new Date().toISOString(), detail: 'selector found' }] }
       ]
     });
-    expect((await database.repositories.getCandidate(4663, address))?.flags.map((flag) => flag.code)).toEqual(['owner_status']);
-    expect((await database.repositories.latestContractScan(4663, address))?.flags.map((flag) => flag.code)).toEqual(['owner_status']);
+    expect((await database.repositories.getCandidate(4663, address))?.flags.map((flag) => flag.code)).toEqual(['owner_status', 'blacklist_selector']);
+    expect((await database.repositories.latestContractScan(4663, address))?.flags.map((flag) => flag.code)).toEqual(['owner_status', 'blacklist_selector']);
+    expect((await database.repositories.listCandidates())[0]?.flags).toEqual([
+      { code: 'blacklist_selector', label: 'Blacklist controls', state: 'detected', severity: 'warning', confidence: 75, explanation: '', evidence: [] }
+    ]);
   });
 
   it('sorts candidates by table columns in either direction', async () => {
