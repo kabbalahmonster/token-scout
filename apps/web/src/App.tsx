@@ -14,11 +14,17 @@ const router = createBrowserRouter([{ element: <Layout/>, errorElement: <RouteEr
 export function App() { const cache = useQueryClient(); useEffect(() => {
   const events = new EventSource(`${apiBase}/api/v1/events`);
   let refresh: ReturnType<typeof setTimeout> | undefined;
-  // A worker cycle can update many scores together. Coalesce that burst into
-  // one refresh instead of issuing a request for every candidate event.
+  let lastRefresh = 0;
+  // Coalesce bursts and cap continuous worker updates at one list refresh per
+  // 30 seconds. Detail pages retain their own focused refresh intervals.
   events.addEventListener('score.updated', () => {
-    if (refresh) clearTimeout(refresh);
-    refresh = setTimeout(() => { void cache.invalidateQueries({ queryKey: ['candidates'] }); }, 250);
+    if (refresh) return;
+    const delay = Math.max(250, 30_000 - (Date.now() - lastRefresh));
+    refresh = setTimeout(() => {
+      refresh = undefined;
+      lastRefresh = Date.now();
+      void cache.invalidateQueries({ queryKey: ['candidates'] });
+    }, delay);
   });
   return () => { events.close(); if (refresh) clearTimeout(refresh); };
 }, [cache]); return <RouterProvider router={router}/>; }

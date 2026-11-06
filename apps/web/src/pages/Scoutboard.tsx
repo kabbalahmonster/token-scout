@@ -47,14 +47,14 @@ export function Scoutboard() {
   const [watchErrorAddress, setWatchErrorAddress] = useState<string | null>(null);
   const [presets, setPresets] = useState<Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>; } catch { return []; } });
   useEffect(() => { localStorage.setItem(settingsKey, JSON.stringify({ search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen } satisfies ScoutboardSettings)); }, [search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen]);
-  const pageSize = 250;
+  const [pageSize] = useState(() => window.matchMedia('(max-width: 760px)').matches ? 50 : 100);
   const params = new URLSearchParams(); if (deferredSearch) params.set('search', deferredSearch); if (assetType) params.set('assetType', assetType); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState);
   if (marketProfile === 'quality') { params.set('minPairAgeDays', '30'); params.set('minLiquidityUsd', '25000'); params.set('minVolumeUsd', '1000'); if (!minScore || Number(minScore) < 50) params.set('minScore', '50'); }
   else if (marketProfile === 'established') params.set('minPairAgeDays', '30');
   else if (marketProfile === 'maturing') params.set('minPairAgeDays', '7');
   else if (marketProfile === 'new') params.set('maxPairAgeDays', '7');
   params.set('sort', sort); params.set('direction', direction); params.set('limit', String(pageSize + 1)); params.set('offset', String(page * pageSize));
-  const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), placeholderData: (previous) => previous, staleTime: 10_000, refetchInterval: 30_000 });
+  const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), placeholderData: (previous) => previous, staleTime: 20_000, refetchInterval: 60_000 });
   useEffect(() => setPage(0), [deferredSearch, assetType, marketProfile, verdict, minScore, routeState, sort, direction]);
   const watchlists = useQuery({ queryKey: ['watchlists'], queryFn: client.watchlists, staleTime: 60_000 });
   const watch = useMutation({
