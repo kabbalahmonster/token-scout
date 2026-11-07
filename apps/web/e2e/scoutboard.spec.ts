@@ -93,11 +93,16 @@ test('a candidate can be added to the watchlist directly from Scoutboard', async
 
 test('candidate filters and sorting survive a reload', async ({ page }) => {
   await page.goto('/');
+  const toggle = page.getByRole('button', { name: /Filters & sorting/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
   await page.getByLabel('Market profile').selectOption('new');
   await page.getByLabel('Asset type').selectOption('tokenized_stock');
   await page.getByLabel('Sort candidates').selectOption('volume');
   await page.getByRole('button', { name: /Sort descending; change direction/ }).click();
   await page.reload();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
   await expect(page.getByLabel('Market profile')).toHaveValue('new');
   await expect(page.getByLabel('Asset type')).toHaveValue('tokenized_stock');
   await expect(page.getByLabel('Sort candidates')).toHaveValue('volume');
