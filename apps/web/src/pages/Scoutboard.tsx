@@ -1,4 +1,4 @@
-import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
@@ -17,6 +17,17 @@ interface ScoutboardSettings { search: string; assetType: AssetType | ''; market
 const settingsKey = 'doomscout.scoutboardSettings';
 function savedSettings(): Partial<ScoutboardSettings> {
   try { return JSON.parse(localStorage.getItem(settingsKey) ?? '{}') as Partial<ScoutboardSettings>; } catch { return {}; }
+}
+
+function SearchInput({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    if (draft === value) return;
+    const timer = window.setTimeout(() => onCommit(draft), 350);
+    return () => window.clearTimeout(timer);
+  }, [draft, onCommit, value]);
+  return <input aria-label="Search candidates" placeholder="Symbol, name, or address" value={draft} onChange={(event) => setDraft(event.target.value)}/>;
 }
 
 function AssessmentChart({ candidate }: { candidate: Candidate }) {
@@ -38,7 +49,6 @@ export function Scoutboard() {
   const cache = useQueryClient();
   const [initial] = useState(savedSettings);
   const [search, setSearch] = useState(initial.search ?? ''); const [assetType, setAssetType] = useState<AssetType | ''>(initial.assetType ?? 'crypto'); const [marketProfile, setMarketProfile] = useState<MarketProfile>(initial.marketProfile ?? 'quality'); const [verdict, setVerdict] = useState(initial.verdict ?? ''); const [minScore, setMinScore] = useState(initial.minScore ?? ''); const [routeState, setRouteState] = useState(initial.routeState ?? ''); const [sort, setSort] = useState<CandidateSort>(initial.sort ?? 'score'); const [direction, setDirection] = useState<'asc' | 'desc'>(initial.direction ?? 'desc'); const [presetName, setPresetName] = useState('');
-  const deferredSearch = useDeferredValue(search);
   const [page, setPage] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(() => initial.filtersOpen ?? window.matchMedia('(min-width: 761px)').matches);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
@@ -49,7 +59,7 @@ export function Scoutboard() {
   useEffect(() => { localStorage.setItem(settingsKey, JSON.stringify({ search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen } satisfies ScoutboardSettings)); }, [search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen]);
   const [isMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const pageSize = isMobile ? 25 : 100;
-  const params = new URLSearchParams(); if (deferredSearch) params.set('search', deferredSearch); if (assetType) params.set('assetType', assetType); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState);
+  const params = new URLSearchParams(); if (search) params.set('search', search); if (assetType) params.set('assetType', assetType); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState);
   if (marketProfile === 'quality') { params.set('minPairAgeDays', '30'); params.set('minLiquidityUsd', '25000'); params.set('minVolumeUsd', '1000'); if (!minScore || Number(minScore) < 50) params.set('minScore', '50'); }
   else if (marketProfile === 'established') params.set('minPairAgeDays', '30');
   else if (marketProfile === 'maturing') params.set('minPairAgeDays', '7');
@@ -57,7 +67,7 @@ export function Scoutboard() {
   params.set('sort', sort); params.set('direction', direction); params.set('limit', String(pageSize + 1)); params.set('offset', String(page * pageSize));
   const queryString = params.size ? `?${params}` : '';
   const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: ({ signal }) => client.candidates(queryString, signal), placeholderData: (previous) => previous, staleTime: 20_000, refetchInterval: 60_000 });
-  useEffect(() => setPage(0), [deferredSearch, assetType, marketProfile, verdict, minScore, routeState, sort, direction]);
+  useEffect(() => setPage(0), [search, assetType, marketProfile, verdict, minScore, routeState, sort, direction]);
   const watchlists = useQuery({ queryKey: ['watchlists'], queryFn: client.watchlists, staleTime: 60_000 });
   const watch = useMutation({
     mutationFn: async (candidate: Candidate) => {
@@ -110,7 +120,7 @@ export function Scoutboard() {
     <div className={`filters-panel${filtersOpen ? ' open' : ''}`}>
       <button className="filters-toggle" type="button" aria-expanded={filtersOpen} aria-controls="scoutboard-filters" onClick={() => setFiltersOpen((current) => !current)}><span><SlidersHorizontal size={16}/>Filters &amp; sorting{activeFilterCount ? <strong>{activeFilterCount} active</strong> : null}</span><span>{sort.replaceAll('_', ' ')} · {direction === 'desc' ? 'high to low' : 'low to high'}<ChevronDown size={16}/></span></button>
       <div className="filters" id="scoutboard-filters" hidden={!filtersOpen}>
-        <input aria-label="Search candidates" placeholder="Symbol, name, or address" value={search} onChange={(event) => setSearch(event.target.value)}/>
+        <SearchInput value={search} onCommit={setSearch}/>
         <select aria-label="Asset type" value={assetType} onChange={(event) => setAssetType(event.target.value as AssetType | '')}><option value="crypto">Crypto</option><option value="tokenized_stock">Tokenized stocks</option><option value="stablecoin">Stablecoins</option><option value="">All asset types</option></select>
         <select aria-label="Market profile" value={marketProfile} onChange={(event) => setMarketProfile(event.target.value as MarketProfile)}><option value="quality">Quality long-term</option><option value="established">Established (30d+)</option><option value="maturing">Maturing (7d+)</option><option value="new">New (&lt;7d)</option><option value="all">All ages</option></select>
         <select aria-label="Verdict" value={verdict} onChange={(event) => setVerdict(event.target.value)}><option value="">Any verdict</option><option>PASS</option><option>CAUTION</option><option>REJECT</option><option>UNASSESSED</option></select>
