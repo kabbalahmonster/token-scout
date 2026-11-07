@@ -47,14 +47,16 @@ export function Scoutboard() {
   const [watchErrorAddress, setWatchErrorAddress] = useState<string | null>(null);
   const [presets, setPresets] = useState<Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>>(() => { try { return JSON.parse(localStorage.getItem('doomscout.filterPresets') ?? '[]') as Array<{ name: string; search: string; assetType?: AssetType | ''; marketProfile?: MarketProfile; verdict: string; minScore: string }>; } catch { return []; } });
   useEffect(() => { localStorage.setItem(settingsKey, JSON.stringify({ search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen } satisfies ScoutboardSettings)); }, [search, assetType, marketProfile, verdict, minScore, routeState, sort, direction, filtersOpen]);
-  const [pageSize] = useState(() => window.matchMedia('(max-width: 760px)').matches ? 50 : 100);
+  const [isMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
+  const pageSize = isMobile ? 25 : 100;
   const params = new URLSearchParams(); if (deferredSearch) params.set('search', deferredSearch); if (assetType) params.set('assetType', assetType); if (verdict) params.set('verdict', verdict); if (minScore) params.set('minScore', minScore); if (routeState) params.set('routeState', routeState);
   if (marketProfile === 'quality') { params.set('minPairAgeDays', '30'); params.set('minLiquidityUsd', '25000'); params.set('minVolumeUsd', '1000'); if (!minScore || Number(minScore) < 50) params.set('minScore', '50'); }
   else if (marketProfile === 'established') params.set('minPairAgeDays', '30');
   else if (marketProfile === 'maturing') params.set('minPairAgeDays', '7');
   else if (marketProfile === 'new') params.set('maxPairAgeDays', '7');
   params.set('sort', sort); params.set('direction', direction); params.set('limit', String(pageSize + 1)); params.set('offset', String(page * pageSize));
-  const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: () => client.candidates(params.size ? `?${params}` : ''), placeholderData: (previous) => previous, staleTime: 20_000, refetchInterval: 60_000 });
+  const queryString = params.size ? `?${params}` : '';
+  const query = useQuery({ queryKey: ['candidates', params.toString()], queryFn: ({ signal }) => client.candidates(queryString, signal), placeholderData: (previous) => previous, staleTime: 20_000, refetchInterval: 60_000 });
   useEffect(() => setPage(0), [deferredSearch, assetType, marketProfile, verdict, minScore, routeState, sort, direction]);
   const watchlists = useQuery({ queryKey: ['watchlists'], queryFn: client.watchlists, staleTime: 60_000 });
   const watch = useMutation({
@@ -96,7 +98,12 @@ export function Scoutboard() {
   ], [addedAddresses, copiedAddress, expandedAddress, watch.isPending, watch.variables, watchErrorAddress, watchlists.data?.data]);
   const pageCandidates = (query.data?.data ?? []).slice(0, pageSize);
   const hasNextPage = (query.data?.data.length ?? 0) > pageSize;
-  const table = useReactTable({ data: pageCandidates, columns, getCoreRowModel: getCoreRowModel() });
+  const table = useReactTable({
+    data: pageCandidates,
+    columns,
+    state: { columnVisibility: isMobile ? { marketCap: false, assetType: false, state: false, liquidity: false, volume: false, age: false, swingScore: false, swingEventsPerDay: false, routeState: false, flags: false } : {} },
+    getCoreRowModel: getCoreRowModel()
+  });
   const activeFilterCount = [search, assetType, marketProfile === 'all' ? '' : marketProfile, verdict, minScore, routeState].filter(Boolean).length;
   return <section className="page">
     <div className="pagehead"><div><p className="eyebrow">Candidate intelligence</p><h1>Scoutboard</h1><p>Ranked for grid/gridless suitability—not hype, safety, or predicted profit.</p></div><div className="stat"><strong>{pageCandidates.length}</strong><span>visible candidates · page {page + 1}</span></div></div>

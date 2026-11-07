@@ -15,7 +15,7 @@ export interface CandidateDetail { candidate: Candidate; swings: SwingStudy | nu
 export interface QueueStatus { state: string; position: number | null; queuedAhead: number; estimatedWaitSeconds: number; createdAt: string; updatedAt: string }
 export interface AssessmentQueued { jobId: string; chainId: number; address: string; state: 'queued'; queue: QueueStatus | null }
 export const client = {
-  candidates: (query = '') => api<{ data: Candidate[]; meta: { generatedAt: string } }>(`/api/v1/candidates${query}`),
+  candidates: (query = '', signal?: AbortSignal) => api<{ data: Candidate[]; meta: { generatedAt: string } }>(`/api/v1/candidates${query}`, signal ? { signal } : {}),
   candidate: (chainId: number, address: string) => api<CandidateDetail>(`/api/v1/candidates/${chainId}/${address}`),
   setCanonicalPair: (chainId: number, address: string, pairAddress: string | null) => api<void>(`/api/v1/candidates/${chainId}/${address}/canonical-pair`, { method: 'PATCH', body: JSON.stringify({ pairAddress }) }),
   history: (chainId: number, address: string) => api<{ data: MarketSnapshot[] }>(`/api/v1/candidates/${chainId}/${address}/history`),

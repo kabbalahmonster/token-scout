@@ -63,20 +63,10 @@ main { min-width:0; }.topbar { height:54px; border-bottom:1px solid var(--line);
   .tablewrap{overflow:hidden}
   .candidate-table{table-layout:fixed;font-size:.75rem}
   .candidate-table th,.candidate-table td{padding:.7rem .42rem;white-space:normal}
-  .candidate-table th:nth-child(2),.candidate-table td:nth-child(2),
-  .candidate-table th:nth-child(3),.candidate-table td:nth-child(3),
-  .candidate-table th:nth-child(6),.candidate-table td:nth-child(6),
-  .candidate-table th:nth-child(7),.candidate-table td:nth-child(7),
-  .candidate-table th:nth-child(8),.candidate-table td:nth-child(8),
-  .candidate-table th:nth-child(9),.candidate-table td:nth-child(9),
-  .candidate-table th:nth-child(10),.candidate-table td:nth-child(10),
-  .candidate-table th:nth-child(11),.candidate-table td:nth-child(11),
-  .candidate-table th:nth-child(12),.candidate-table td:nth-child(12),
-  .candidate-table th:nth-child(13),.candidate-table td:nth-child(13){display:none}
-  .candidate-table th:nth-child(1),.candidate-table td:nth-child(1){width:38%}
-  .candidate-table th:nth-child(4),.candidate-table td:nth-child(4){width:16%}
-  .candidate-table th:nth-child(5),.candidate-table td:nth-child(5){width:26%}
-  .candidate-table th:nth-child(14),.candidate-table td:nth-child(14){width:20%;padding-left:.1rem;padding-right:.1rem;text-align:center}
+  .candidate-table th:nth-child(1),.candidate-table td:nth-child(1){width:40%}
+  .candidate-table th:nth-child(2),.candidate-table td:nth-child(2){width:17%}
+  .candidate-table th:nth-child(3),.candidate-table td:nth-child(3){width:25%}
+  .candidate-table th:nth-child(4),.candidate-table td:nth-child(4){width:18%;padding-left:.1rem;padding-right:.1rem;text-align:center}
   .candidate-table .token-cell{gap:.25rem;min-width:0}.candidate-table .token{min-width:0;overflow:hidden}.candidate-table .token strong,.candidate-table .token span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .candidate-table .copy-address{min-width:36px;min-height:36px;padding:.4rem}
   .candidate-table .row-actions{justify-content:center;gap:0}.candidate-table .row-expand,.candidate-table .quick-watch{min-width:34px;min-height:38px;padding:.3rem}
