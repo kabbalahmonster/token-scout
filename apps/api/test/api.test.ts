@@ -73,7 +73,10 @@ describe('API integration', () => {
 
   it('accepts table sort columns and rejects unknown ones', async () => {
     database = openDatabase(':memory:'); app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
-    expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?limit=2000' })).statusCode).toBe(200);
+    await database.repositories.upsertCandidate({ chainId: 4663, address: '0x1111111111111111111111111111111111111111' });
+    const page = await app.inject({ method: 'GET', url: '/api/v1/candidates?limit=2000' });
+    expect(page.statusCode).toBe(200);
+    expect(page.json().meta.total).toBe(1);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?limit=2001' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?minPairAgeDays=30&maxPairAgeDays=90' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/v1/candidates?minPairAgeDays=-1' })).statusCode).toBe(400);

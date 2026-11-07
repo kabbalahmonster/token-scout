@@ -63,7 +63,7 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
 
   app.get('/api/v1/candidates', { schema: { tags: ['candidates'], querystring: { type: 'object', properties: { state: { type: 'string' }, watched: { type: 'boolean' }, verdict: { type: 'string' }, assetType: { enum: ['crypto', 'tokenized_stock', 'stablecoin'] }, minScore: { type: 'number' }, minLiquidityUsd: { type: 'number' }, minVolumeUsd: { type: 'number' }, minPairAgeDays: { type: 'number', minimum: 0 }, maxPairAgeDays: { type: 'number', minimum: 0 }, routeState: { type: 'string' }, riskFlag: { type: 'string', maxLength: 80 }, search: { type: 'string', maxLength: 100 }, limit: { type: 'integer', minimum: 1, maximum: 2000 }, offset: { type: 'integer', minimum: 0 }, sort: { enum: ['token', 'asset_type', 'score', 'verdict', 'state', 'swing', 'events_per_day', 'liquidity', 'market_cap', 'volume', 'volume_liquidity', 'age', 'route', 'route_recovery', 'flags', 'updated'] }, direction: { enum: ['asc', 'desc'] } } } } }, async (request) => {
     const query = request.query as any;
-    return { data: await database.repositories.listCandidates({
+    const page = await database.repositories.listCandidatePage({
       ...(query.state ? { state: query.state as CandidateState } : {}),
       ...(query.watched === undefined ? {} : { watched: Boolean(query.watched) }),
       ...(query.verdict ? { verdict: query.verdict as Verdict } : {}),
@@ -80,7 +80,8 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
       ...(query.offset === undefined ? {} : { offset: Number(query.offset) }),
       ...(query.sort ? { sort: query.sort } : {}),
       ...(query.direction ? { direction: query.direction } : {})
-    }), meta: { generatedAt: new Date().toISOString() } };
+    });
+    return { data: page.data, meta: { generatedAt: new Date().toISOString(), total: page.total } };
   });
 
   app.post('/api/v1/candidates/assess', { schema: { tags: ['candidates'], body: { type: 'object', additionalProperties: false, required: ['address'], properties: { chainId: { type: 'integer', minimum: 1, default: 4663 }, address: { type: 'string', pattern: '^0x[a-fA-F0-9]{40}$' } } } } }, async (request, reply) => {

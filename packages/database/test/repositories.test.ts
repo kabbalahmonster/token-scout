@@ -102,6 +102,9 @@ describe('repositories', () => {
     expect((await database.repositories.listCandidates({ sort: 'token', direction: 'asc' })).map((candidate) => candidate.symbol)).toEqual(['ALPHA', 'ZULU']);
     expect((await database.repositories.listCandidates({ sort: 'token', direction: 'desc' })).map((candidate) => candidate.symbol)).toEqual(['ZULU', 'ALPHA']);
     expect((await database.repositories.listCandidates({ sort: 'token', direction: 'asc', limit: 1 })).map((candidate) => candidate.symbol)).toEqual(['ALPHA']);
+    const page = await database.repositories.listCandidatePage({ sort: 'token', direction: 'asc', limit: 1 });
+    expect(page.data.map((candidate) => candidate.symbol)).toEqual(['ALPHA']);
+    expect(page.total).toBe(2);
   });
 
   it('selects only overdue high-potential candidates for bounded refresh', async () => {

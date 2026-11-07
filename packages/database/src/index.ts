@@ -122,6 +122,10 @@ export class Repositories {
   }
 
   async listCandidates(filters: CandidateFilters = {}): Promise<Candidate[]> {
+    return (await this.listCandidatePage(filters)).data;
+  }
+
+  async listCandidatePage(filters: CandidateFilters = {}): Promise<{ data: Candidate[]; total: number }> {
     let query = this.db.selectFrom('candidates').select([
       'chain_id', 'address', 'symbol', 'name', 'decimals', 'total_supply', 'state', 'canonical_pair', 'canonical_pair_override',
       'discovered_at', 'updated_at', 'watched', 'score', 'verdict', 'confidence', 'score_version',
@@ -178,7 +182,7 @@ export class Repositories {
       return (typeof left === 'string' && typeof right === 'string' ? left.localeCompare(right) : Number(left) - Number(right)) * direction;
     });
     const offset = filters.offset ?? 0;
-    return sorted.slice(offset, offset + Math.min(filters.limit ?? 100, 2000));
+    return { data: sorted.slice(offset, offset + Math.min(filters.limit ?? 100, 2000)), total: sorted.length };
   }
 
   async listRefreshCandidates(input: { assessedBefore: string; minScore: number; limit: number }): Promise<RefreshCandidate[]> {
