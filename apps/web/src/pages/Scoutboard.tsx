@@ -139,12 +139,14 @@ export function Scoutboard() {
     column.display({ id: 'flags', header: 'Flags', cell: ({ row }) => { const flags = row.original.flags.filter((flag) => flag.state === 'detected'); return <span className={flags.length ? 'flag-count' : 'muted'}>{flags.length ? <><AlertTriangle size={14}/>{flags.length}</> : 'none detected*'}</span>; } }),
     column.display({ id: 'go', cell: ({ row }) => { const candidate = row.original; const expanded = expandedAddress === candidate.address; return <div className="row-actions"><QuickWatch candidate={candidate} lists={watchlists.data?.data ?? []} added={addedAddresses.has(candidate.address)} pending={watch.isPending && watch.variables.address === candidate.address} failed={watchErrorAddress === candidate.address} onWatch={(selected) => watch.mutate(selected)}/><button className="row-expand" type="button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${candidate.symbol ?? candidate.address} assessment`} aria-expanded={expanded} onClick={() => setExpandedAddress((current) => current === candidate.address ? null : candidate.address)}>{expanded ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button></div>; } })
   ], [addedAddresses, copiedAddress, expandedAddress, watch.isPending, watch.variables, watchErrorAddress, watchlists.data?.data]);
-  const pageCandidates = (query.data?.data ?? []).slice(0, pageSize);
+  const candidateData = query.data?.data;
+  const pageCandidates = useMemo(() => (candidateData ?? []).slice(0, pageSize), [candidateData, pageSize]);
   const hasNextPage = (query.data?.data.length ?? 0) > pageSize;
+  const columnVisibility = useMemo(() => isMobile ? { marketCap: false, assetType: false, state: false, liquidity: false, volume: false, age: false, swingScore: false, swingEventsPerDay: false, routeState: false, flags: false } : {}, [isMobile]);
   const table = useReactTable({
     data: pageCandidates,
     columns,
-    state: { columnVisibility: isMobile ? { marketCap: false, assetType: false, state: false, liquidity: false, volume: false, age: false, swingScore: false, swingEventsPerDay: false, routeState: false, flags: false } : {} },
+    state: { columnVisibility },
     getCoreRowModel: getCoreRowModel()
   });
   return <section className="page">
