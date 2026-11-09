@@ -2,7 +2,7 @@ import { Decimal } from 'decimal.js';
 import { CoinGeckoAdapter, DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, SushiQuoteAdapter, type GeckoDiscoveryLead, type ResilienceOptions } from '@doomscout/adapters';
 import type { AppConfig } from '@doomscout/config';
 import type { Repositories } from '@doomscout/database';
-import { calculateSwingStudy, normalizeAddress, scoreCandidate, type Address, type RouteAssessment } from '@doomscout/domain';
+import { calculateSwingStudy, normalizeAddress, scoreCandidate, type PoolAddress, type RouteAssessment } from '@doomscout/domain';
 
 export class AssessmentService {
   readonly dex: DexScreenerAdapter;
@@ -90,13 +90,25 @@ export class AssessmentService {
         return;
       }
 
-      const [market, scan] = await Promise.all([this.dex.token(chainId, address), this.rpc.scanContract(chainId, address)]);
+      const [market, geckoPools, scan] = await Promise.all([
+        this.dex.token(chainId, address),
+        this.geckoTerminal.token(address).catch(() => []),
+        this.rpc.scanContract(chainId, address)
+      ]);
+      const pairs = [
+        ...market.pairs,
+        ...geckoPools.map((pool) => ({
+          pairAddress: pool.poolAddress, dex: pool.dex, url: null,
+          quoteTokenAddress: pool.quoteTokenAddress, createdAt: pool.createdAt,
+          liquidityUsd: pool.liquidityUsd, snapshot: pool.snapshot, raw: pool.raw
+        }))
+      ];
       await this.repositories.setCandidateMetadata(chainId, address, { symbol: market.token.symbol ?? scan.metadata.symbol, name: market.token.name ?? scan.metadata.name, decimals: scan.metadata.decimals, totalSupply: scan.metadata.totalSupply });
       await this.repositories.saveContractScan(scan);
 
-      for (const pair of market.pairs) await this.repositories.upsertPair({ chainId, tokenAddress: address, pairAddress: pair.pairAddress, dex: pair.dex, url: pair.url, quoteTokenAddress: pair.quoteTokenAddress, createdAt: pair.createdAt, liquidityUsd: pair.liquidityUsd });
+      for (const pair of pairs) await this.repositories.upsertPair({ chainId, tokenAddress: address, pairAddress: pair.pairAddress, dex: pair.dex, url: pair.url, quoteTokenAddress: pair.quoteTokenAddress, createdAt: pair.createdAt, liquidityUsd: pair.liquidityUsd });
       const persistedCandidate = await this.repositories.getCandidate(chainId, address);
-      const canonical = selectCanonicalMarketPair(market.pairs, persistedCandidate?.canonicalPair ?? null);
+      const canonical = selectCanonicalMarketPair(pairs, persistedCandidate?.canonicalPair ?? null);
       if (canonical) await this.repositories.insertSnapshot(canonical.snapshot, canonical.raw);
 
       const canonicalPair = canonical?.pairAddress ?? persistedCandidate?.canonicalPair ?? null;
@@ -134,7 +146,7 @@ export class AssessmentService {
   }
 }
 
-export function selectCanonicalMarketPair<T extends { pairAddress: Address; liquidityUsd: string | null }>(pairs: T[], canonicalAddress: Address | null): T | undefined {
+export function selectCanonicalMarketPair<T extends { pairAddress: PoolAddress; liquidityUsd: string | null }>(pairs: T[], canonicalAddress: PoolAddress | null): T | undefined {
   if (canonicalAddress) {
     const overridden = pairs.find((pair) => pair.pairAddress.toLowerCase() === canonicalAddress.toLowerCase());
     if (overridden) return overridden;

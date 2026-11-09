@@ -23,6 +23,14 @@ describe('adapter fixtures', () => {
     expect(result.pairs[0]?.snapshot.volume24hUsd).toBeNull();
   });
 
+  it('retains 32-byte V4 pool identifiers instead of silently dropping deep pools', async () => {
+    const poolId = `0x${'22'.repeat(32)}`;
+    const fetcher = vi.fn(() => response([{ chainId: 'robinhood', dexId: 'uniswap-v4', pairAddress: poolId, baseToken: { address: '0x1111111111111111111111111111111111111111', symbol: 'FOX' }, quoteToken: { address: '0x3333333333333333333333333333333333333333' }, priceUsd: '0.01', liquidity: { usd: 75000 }, marketCap: 500000 }])) as unknown as typeof fetch;
+    const result = await new DexScreenerAdapter('https://fixture.test', options, fetcher).token(4663, '0x1111111111111111111111111111111111111111');
+    expect(result.pairs[0]).toMatchObject({ pairAddress: poolId, liquidityUsd: '75000' });
+    expect(result.pairs[0]?.snapshot.marketCapUsd).toBe('500000');
+  });
+
   it('does not attribute a quote-side asset price to the requested token', async () => {
     const requested = '0x1111111111111111111111111111111111111111';
     const fetcher = vi.fn(() => response([{ chainId: 'robinhood', dexId: 'fixture', pairAddress: '0x2222222222222222222222222222222222222222', baseToken: { address: '0x3333333333333333333333333333333333333333', symbol: 'OTHER' }, quoteToken: { address: requested, symbol: 'FOX' }, priceUsd: '99', liquidity: { usd: 999999 } }])) as unknown as typeof fetch;
@@ -45,6 +53,16 @@ describe('adapter fixtures', () => {
     ]);
     expect(leads[0]).toMatchObject({ address: '0x1111111111111111111111111111111111111111', poolAddress: '0x2222222222222222222222222222222222222222', liquidityUsd: '25000', volume24hUsd: '5000', buys24h: 12, sells24h: 8 });
     expect(leads[0]?.snapshot.source).toBe('geckoterminal');
+  });
+
+  it('deep-checks a token across GeckoTerminal pools including quote-side assets and V4 IDs', async () => {
+    const requested = '0x1111111111111111111111111111111111111111';
+    const poolId = `0x${'44'.repeat(32)}`;
+    const pool = { id: `robinhood_${poolId}`, attributes: { address: poolId, quote_token_price_usd: '0.25', quote_token_price_native_currency: '0.0001', reserve_in_usd: '90000', market_cap_usd: '450000' }, relationships: { base_token: { data: { id: 'robinhood_0x3333333333333333333333333333333333333333' } }, quote_token: { data: { id: `robinhood_${requested}` } }, dex: { data: { id: 'uniswap-v4' } } } };
+    const fetcher = vi.fn(() => response({ data: [pool] })) as unknown as typeof fetch;
+    const result = await new GeckoTerminalAdapter('https://fixture.test', options, fetcher, 'robinhood', 100_000).token(requested);
+    expect(result[0]).toMatchObject({ address: requested, poolAddress: poolId, tokenSide: 'quote', liquidityUsd: '90000' });
+    expect(result[0]?.snapshot).toMatchObject({ priceUsd: '0.25', marketCapUsd: '450000' });
   });
 
   it('imports immutable hourly OHLCV candles for retained swing analysis', async () => {

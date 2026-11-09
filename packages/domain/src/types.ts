@@ -6,6 +6,8 @@ export const RECOMMENDATION_VERSION = '1.0.0';
 
 export type ChainId = number;
 export type Address = `0x${string}`;
+/** EVM pool identifiers are either contract addresses or 32-byte V4 pool IDs. */
+export type PoolAddress = `0x${string}`;
 
 export type CandidateState =
   | 'discovered' | 'queued' | 'collecting_history' | 'assessed'
@@ -19,7 +21,7 @@ export type TriState = 'detected' | 'not_detected' | 'unknown';
 export type SourceHealthState = 'healthy' | 'degraded' | 'open_circuit' | 'not_configured';
 
 export interface PairIdentity {
-  address: Address;
+  address: PoolAddress;
   dex: string;
   url?: string;
   quoteTokenAddress?: Address;
@@ -32,7 +34,7 @@ export interface MarketSnapshot {
   id: number;
   chainId: ChainId;
   tokenAddress: Address;
-  pairAddress: Address | null;
+  pairAddress: PoolAddress | null;
   dex: string | null;
   priceNative: string | null;
   priceUsd: string | null;
@@ -61,7 +63,7 @@ export interface Candidate {
   totalSupply: string | null;
   assetType: AssetType;
   state: CandidateState;
-  canonicalPair: Address | null;
+  canonicalPair: PoolAddress | null;
   discoveredAt: string;
   updatedAt: string;
   watched: boolean;
@@ -238,7 +240,7 @@ export interface RecommendationDraft {
   recommendationVersion: string;
   chainId: ChainId;
   tokenAddress: Address;
-  pairAddress: Address | null;
+  pairAddress: PoolAddress | null;
   generatedAt: string;
   latestSourceTime: string | null;
   operatorReviewRequired: true;

@@ -7,7 +7,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, Che
 import type { AssetType, Candidate } from '@doomscout/domain';
 import { client } from '../api.js';
 import { PriceChart } from '../components/PriceChart.js';
-import { Age, Money, StateBadge, VerdictBadge } from '../components/Status.js';
+import { Age, CandidateMarketCap, Money, StateBadge, VerdictBadge } from '../components/Status.js';
 
 const column = createColumnHelper<Candidate>();
 type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'events_per_day' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
@@ -124,8 +124,8 @@ export function Scoutboard() {
     onError: (_, candidate) => setWatchErrorAddress(candidate.address)
   });
   const columns = useMemo(() => [
-    column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => { const candidate = row.original; const copied = copiedAddress === candidate.address; return <div className="token-cell"><div className="token"><strong>{candidate.symbol ?? 'UNKNOWN'}</strong><span>{candidate.name ?? `${candidate.address.slice(0, 8)}…${candidate.address.slice(-5)}`}</span><span className="mobile-market-cap">MCap <Money value={candidate.latestSnapshot?.marketCapUsd}/></span></div><button className={`copy-address${copied ? ' copied' : ''}`} type="button" title={candidate.address} aria-label={`${copied ? 'Copied' : 'Copy'} contract address ${candidate.address}`} onClick={() => { void navigator.clipboard.writeText(candidate.address).then(() => { setCopiedAddress(candidate.address); window.setTimeout(() => setCopiedAddress((current) => current === candidate.address ? null : current), 1500); }); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</button></div>; } }),
-    column.accessor((row) => row.latestSnapshot?.marketCapUsd, { id: 'marketCap', header: 'Market cap', cell: (info) => <Money value={info.getValue()}/> }),
+    column.accessor((row) => row.symbol ?? row.address, { id: 'token', header: 'Token', cell: ({ row }) => { const candidate = row.original; const copied = copiedAddress === candidate.address; return <div className="token-cell"><div className="token"><strong>{candidate.symbol ?? 'UNKNOWN'}</strong><span>{candidate.name ?? `${candidate.address.slice(0, 8)}…${candidate.address.slice(-5)}`}</span><span className="mobile-market-cap">MCap <CandidateMarketCap candidate={candidate}/></span></div><button className={`copy-address${copied ? ' copied' : ''}`} type="button" title={candidate.address} aria-label={`${copied ? 'Copied' : 'Copy'} contract address ${candidate.address}`} onClick={() => { void navigator.clipboard.writeText(candidate.address).then(() => { setCopiedAddress(candidate.address); window.setTimeout(() => setCopiedAddress((current) => current === candidate.address ? null : current), 1500); }); }}>{copied ? <Check size={14}/> : <Copy size={14}/>}</button></div>; } }),
+    column.accessor((row) => row.latestSnapshot?.marketCapUsd, { id: 'marketCap', header: 'Market cap', cell: ({ row }) => <CandidateMarketCap candidate={row.original}/> }),
     column.accessor('assetType', { header: 'Asset type', cell: (info) => <span className={`asset-type asset-${info.getValue()}`}>{assetTypeLabels[info.getValue()]}</span> }),
     column.accessor('score', { header: 'Score', cell: ({ row }) => <div className="score"><strong>{row.original.score ?? '—'}</strong><span>{row.original.confidence}% confidence</span></div> }),
     column.accessor('verdict', { header: 'Verdict', cell: (info) => <VerdictBadge verdict={info.getValue()}/> }),

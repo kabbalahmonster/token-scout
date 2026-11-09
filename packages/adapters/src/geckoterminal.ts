@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { normalizeAddress, type Address, type MarketSnapshot } from '@doomscout/domain';
+import { normalizeAddress, normalizePoolAddress, type Address, type MarketSnapshot, type PoolAddress } from '@doomscout/domain';
 import { AdapterError, ResilientHttpClient, type FetchLike, type ResilienceOptions } from './resilient.js';
 
 interface GeckoRelationship { data?: { id?: string; type?: string } }
@@ -32,7 +32,7 @@ function relationshipAddress(relationship: GeckoRelationship | undefined): strin
 
 export interface GeckoDiscoveryLead {
   address: Address;
-  poolAddress: Address;
+  poolAddress: PoolAddress;
   quoteTokenAddress: Address | null;
   tokenSide: 'base' | 'quote';
   dex: string;
@@ -60,20 +60,23 @@ export class GeckoTerminalAdapter {
 
   status() { return this.client.status(); }
 
-  private normalizePool(pool: GeckoPool): GeckoDiscoveryLead | null {
+  private normalizePool(pool: GeckoPool, requestedAddress?: Address): GeckoDiscoveryLead | null {
     const attributes = pool.attributes;
     const poolRaw = attributes?.address;
     const baseRaw = relationshipAddress(pool.relationships?.base_token);
     const quoteRaw = relationshipAddress(pool.relationships?.quote_token);
     if (!poolRaw || !baseRaw || !quoteRaw) return null;
+    const requested = requestedAddress?.toLowerCase();
+    if (requested && baseRaw !== requested && quoteRaw !== requested) return null;
     const baseIsNative = baseRaw === NATIVE_SENTINEL;
-    const tokenRaw = baseIsNative ? quoteRaw : baseRaw;
+    const tokenRaw = requested ?? (baseIsNative ? quoteRaw : baseRaw);
     if (tokenRaw === NATIVE_SENTINEL) return null;
     try {
       const address = normalizeAddress(tokenRaw);
-      const poolAddress = normalizeAddress(poolRaw);
-      const quoteTokenAddress = (baseIsNative ? baseRaw : quoteRaw) === NATIVE_SENTINEL ? null : normalizeAddress(baseIsNative ? baseRaw : quoteRaw);
-      const tokenSide = baseIsNative ? 'quote' : 'base';
+      const poolAddress = normalizePoolAddress(poolRaw);
+      const tokenSide = tokenRaw === baseRaw ? 'base' : 'quote';
+      const counterparty = tokenSide === 'base' ? quoteRaw : baseRaw;
+      const quoteTokenAddress = counterparty === NATIVE_SENTINEL ? null : normalizeAddress(counterparty);
       const ingestedAt = new Date().toISOString();
       const priceUsd = tokenSide === 'base' ? attributes.base_token_price_usd ?? null : attributes.quote_token_price_usd ?? null;
       const priceNative = tokenSide === 'base' ? attributes.base_token_price_native_currency ?? null : attributes.quote_token_price_native_currency ?? null;
@@ -122,7 +125,15 @@ export class GeckoTerminalAdapter {
     return [...new Map(leads.map((lead) => [`${lead.address}:${lead.poolAddress}`, lead])).values()];
   }
 
-  async hourlyHistory(address: Address, poolAddress: Address, limit: number): Promise<Array<Omit<MarketSnapshot, 'id'>>> {
+  async token(address: Address): Promise<GeckoDiscoveryLead[]> {
+    const response = await this.client.json<PoolListResponse>(`${this.baseUrl}/networks/${this.network}/tokens/${address}/pools?page=1`);
+    return (response.data ?? []).flatMap((pool) => {
+      const normalized = this.normalizePool(pool, address);
+      return normalized ? [normalized] : [];
+    });
+  }
+
+  async hourlyHistory(address: Address, poolAddress: PoolAddress, limit: number): Promise<Array<Omit<MarketSnapshot, 'id'>>> {
     const fetchSide = async (side: 'base' | 'quote') => this.client.json<OhlcvResponse>(`${this.baseUrl}/networks/${this.network}/pools/${poolAddress}/ohlcv/hour?aggregate=1&limit=${limit}&currency=usd&token=${side}`);
     let response = await fetchSide('base');
     const baseAddress = response.meta?.base?.address?.toLowerCase();

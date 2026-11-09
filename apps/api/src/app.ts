@@ -8,7 +8,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import type { AppConfig } from '@doomscout/config';
 import type { OpenDatabase } from '@doomscout/database';
-import { generateRecommendation, isEvmAddress, normalizeAddress, recommendationToEnv, type AssetType, type CandidateState, type Verdict } from '@doomscout/domain';
+import { generateRecommendation, isEvmAddress, normalizeAddress, normalizePoolAddress, recommendationToEnv, type AssetType, type CandidateState, type Verdict } from '@doomscout/domain';
 
 const addressParamSchema = { type: 'object', required: ['chainId', 'address'], properties: { chainId: { type: 'integer', minimum: 1 }, address: { type: 'string', pattern: '^0x[a-fA-F0-9]{40}$' } } } as const;
 
@@ -118,7 +118,7 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
     const [swings, route, contract, score, pairs] = await Promise.all([database.repositories.latestSwingStudy(chainId, address), database.repositories.latestRouteAssessment(chainId, address), database.repositories.latestContractScan(chainId, address), database.repositories.latestScore(chainId, address), database.repositories.listPairs(chainId, address)]);
     return { candidate, swings, route, contract, score, pairs };
   });
-  app.patch('/api/v1/candidates/:chainId/:address/canonical-pair', { schema: { tags: ['candidates'], params: addressParamSchema, body: { type: 'object', additionalProperties: false, required: ['pairAddress'], properties: { pairAddress: { anyOf: [{ type: 'string', pattern: '^0x[a-fA-F0-9]{40}$' }, { type: 'null' }] } } } } }, async (request, reply) => { const params = request.params as { chainId: string; address: string }; const body = request.body as { pairAddress: string | null }; await database.repositories.setCanonicalPairOverride(Number(params.chainId), normalizeAddress(params.address), body.pairAddress ? normalizeAddress(body.pairAddress) : null); return reply.code(204).send(); });
+  app.patch('/api/v1/candidates/:chainId/:address/canonical-pair', { schema: { tags: ['candidates'], params: addressParamSchema, body: { type: 'object', additionalProperties: false, required: ['pairAddress'], properties: { pairAddress: { anyOf: [{ type: 'string', pattern: '^0x(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$' }, { type: 'null' }] } } } } }, async (request, reply) => { const params = request.params as { chainId: string; address: string }; const body = request.body as { pairAddress: string | null }; await database.repositories.setCanonicalPairOverride(Number(params.chainId), normalizeAddress(params.address), body.pairAddress ? normalizePoolAddress(body.pairAddress) : null); return reply.code(204).send(); });
 
   app.get('/api/v1/candidates/:chainId/:address/history', { schema: { tags: ['candidates'], params: addressParamSchema, querystring: { type: 'object', properties: { since: { type: 'string', format: 'date-time' }, limit: { type: 'integer', minimum: 1, maximum: 100000 }, format: { enum: ['json', 'csv'] } } } } }, async (request, reply) => {
     const params = request.params as { chainId: string; address: string }; const query = request.query as any;

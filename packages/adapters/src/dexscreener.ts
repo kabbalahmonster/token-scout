@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { normalizeAddress, type Address, type MarketSnapshot } from '@doomscout/domain';
+import { normalizeAddress, normalizePoolAddress, type Address, type MarketSnapshot, type PoolAddress } from '@doomscout/domain';
 import { ResilientHttpClient, type FetchLike, type ResilienceOptions } from './resilient.js';
 
 interface TokenProfile { chainId?: string; tokenAddress?: string; url?: string; description?: string }
@@ -14,7 +14,7 @@ interface DexPair {
 }
 
 export interface DiscoveryLead { address: Address; source: 'dexscreener_profile' | 'dexscreener_top_boost'; sourceId: string; sourceTime: string | null }
-export interface DexTokenResult { token: { address: Address; symbol: string | null; name: string | null }; pairs: Array<{ pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null; snapshot: Omit<MarketSnapshot, 'id'>; raw: unknown }> }
+export interface DexTokenResult { token: { address: Address; symbol: string | null; name: string | null }; pairs: Array<{ pairAddress: PoolAddress; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null; snapshot: Omit<MarketSnapshot, 'id'>; raw: unknown }> }
 
 export class DexScreenerAdapter {
   private readonly profilesClient: ResilientHttpClient;
@@ -51,7 +51,7 @@ export class DexScreenerAdapter {
       token: { address, symbol: primary?.baseToken?.symbol ?? null, name: primary?.baseToken?.name ?? null },
       pairs: valid.flatMap((pair) => {
         try {
-          const pairAddress = normalizeAddress(pair.pairAddress!);
+          const pairAddress = normalizePoolAddress(pair.pairAddress!);
           const quoteTokenAddress = pair.quoteToken?.address ? normalizeAddress(pair.quoteToken.address) : null;
           const ingestedAt = new Date().toISOString();
           const normalized = { pairAddress, dex: pair.dexId ?? 'unknown', priceNative: pair.priceNative ?? null, priceUsd: pair.priceUsd ?? null, liquidityUsd: pair.liquidity?.usd === undefined ? null : String(pair.liquidity.usd), fdvUsd: pair.fdv === undefined ? null : String(pair.fdv), marketCapUsd: pair.marketCap === undefined ? null : String(pair.marketCap), volume5mUsd: pair.volume?.m5 === undefined ? null : String(pair.volume.m5), volume1hUsd: pair.volume?.h1 === undefined ? null : String(pair.volume.h1), volume6hUsd: pair.volume?.h6 === undefined ? null : String(pair.volume.h6), volume24hUsd: pair.volume?.h24 === undefined ? null : String(pair.volume.h24), buys24h: pair.txns?.h24?.buys ?? null, sells24h: pair.txns?.h24?.sells ?? null, pairCreatedAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : null, sourceTime: null, ingestedAt, source: 'dexscreener' };

@@ -3,6 +3,7 @@ import { selectCanonicalMarketPair, staleAfterSeconds } from '../src/service.js'
 
 const shallow = { pairAddress: '0x2222222222222222222222222222222222222222' as const, liquidityUsd: '100' };
 const deep = { pairAddress: '0x3333333333333333333333333333333333333333' as const, liquidityUsd: '1000' };
+const v4Deep = { pairAddress: `0x${'44'.repeat(32)}` as const, liquidityUsd: '50000' };
 
 describe('assessment pair selection', () => {
   it('honors a persisted canonical override before liquidity ranking', () => {
@@ -11,6 +12,10 @@ describe('assessment pair selection', () => {
 
   it('falls back to the deepest known-liquidity pair', () => {
     expect(selectCanonicalMarketPair([shallow, deep], null)).toBe(deep);
+  });
+
+  it('ranks a 32-byte V4 pool ID alongside legacy pool addresses', () => {
+    expect(selectCanonicalMarketPair([shallow, v4Deep], null)).toBe(v4Deep);
   });
 });
 

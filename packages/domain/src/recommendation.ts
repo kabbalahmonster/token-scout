@@ -1,10 +1,10 @@
 import { Decimal } from 'decimal.js';
-import { RECOMMENDATION_VERSION, SCHEMA_VERSION, type Address, type MarketSnapshot, type RecommendationDraft, type ScoreResult, type SwingStudy } from './types.js';
+import { RECOMMENDATION_VERSION, SCHEMA_VERSION, type Address, type MarketSnapshot, type PoolAddress, type RecommendationDraft, type ScoreResult, type SwingStudy } from './types.js';
 
 interface RecommendationInput {
   chainId: number;
   tokenAddress: Address;
-  pairAddress: Address | null;
+  pairAddress: PoolAddress | null;
   latest: MarketSnapshot | null;
   swings: SwingStudy | null;
   score: ScoreResult;

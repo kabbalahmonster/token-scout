@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Decimal } from 'decimal.js';
-import { classifyAssetType, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
+import { classifyAssetType, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type PoolAddress, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
 import type { DatabaseSchema } from './schema.js';
 
 const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
@@ -43,7 +43,7 @@ export function openDatabase(path: string): OpenDatabase {
 function candidateFromRow(row: DatabaseSchema['candidates'] & { latest_json?: string | null }): Candidate {
   return {
     chainId: row.chain_id, address: row.address as Address, symbol: row.symbol, name: row.name, decimals: row.decimals, totalSupply: row.total_supply, assetType: classifyAssetType(row.symbol, row.name),
-    state: row.state as CandidateState, canonicalPair: row.canonical_pair as Address | null, discoveredAt: row.discovered_at, updatedAt: row.updated_at,
+    state: row.state as CandidateState, canonicalPair: row.canonical_pair as PoolAddress | null, discoveredAt: row.discovered_at, updatedAt: row.updated_at,
     watched: row.watched === 1, score: row.score, verdict: row.verdict as Verdict, confidence: row.confidence, scoreVersion: row.score_version,
     flags: visibleRiskFlags(JSON.parse(row.flags_json) as RiskFlag[]), latestSnapshot: row.latest_json ? JSON.parse(row.latest_json) as MarketSnapshot : row.latest_snapshot_json ? JSON.parse(row.latest_snapshot_json) as MarketSnapshot : null,
     swingScore: row.swing_score, swingEventsPerDay: row.swing_events_per_day,
@@ -250,7 +250,7 @@ export class Repositories {
     }));
   }
 
-  async upsertPair(input: { chainId: number; tokenAddress: Address; pairAddress: Address; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null }): Promise<void> {
+  async upsertPair(input: { chainId: number; tokenAddress: Address; pairAddress: PoolAddress; dex: string; url: string | null; quoteTokenAddress: Address | null; createdAt: string | null; liquidityUsd: string | null }): Promise<void> {
     const now = new Date().toISOString();
     await this.db.insertInto('pairs').values({ chain_id: input.chainId, token_address: input.tokenAddress, pair_address: input.pairAddress, dex: input.dex, url: input.url, quote_token_address: input.quoteTokenAddress, created_at: input.createdAt, liquidity_usd: input.liquidityUsd, last_seen_at: now })
       .onConflict((conflict) => conflict.columns(['chain_id', 'pair_address']).doUpdateSet({ liquidity_usd: input.liquidityUsd, last_seen_at: now, url: input.url })).execute();
@@ -258,15 +258,15 @@ export class Repositories {
     const best = await this.db.selectFrom('pairs').select(['pair_address']).where('chain_id', '=', input.chainId).where('token_address', '=', input.tokenAddress).where('liquidity_usd', 'is not', null).orderBy(sql`CAST(liquidity_usd AS REAL)`, 'desc').executeTakeFirst();
     if (best) await this.db.updateTable('candidates').set({ canonical_pair: best.pair_address, updated_at: now }).where('chain_id', '=', input.chainId).where('address', '=', input.tokenAddress).where('canonical_pair_override', 'is', null).execute();
   }
-  async listPairs(chainId: number, address: Address): Promise<Array<{ pairAddress: Address; dex: string; url: string | null; liquidityUsd: string | null; createdAt: string | null }>> { const rows = await this.db.selectFrom('pairs').selectAll().where('chain_id', '=', chainId).where('token_address', '=', address).orderBy(sql`CAST(liquidity_usd AS REAL)`, 'desc').execute(); return rows.map((row) => ({ pairAddress: row.pair_address as Address, dex: row.dex, url: row.url, liquidityUsd: row.liquidity_usd, createdAt: row.created_at })); }
-  async setCanonicalPairOverride(chainId: number, address: Address, pairAddress: Address | null): Promise<void> {
+  async listPairs(chainId: number, address: Address): Promise<Array<{ pairAddress: PoolAddress; dex: string; url: string | null; liquidityUsd: string | null; createdAt: string | null }>> { const rows = await this.db.selectFrom('pairs').selectAll().where('chain_id', '=', chainId).where('token_address', '=', address).orderBy(sql`CAST(liquidity_usd AS REAL)`, 'desc').execute(); return rows.map((row) => ({ pairAddress: row.pair_address as PoolAddress, dex: row.dex, url: row.url, liquidityUsd: row.liquidity_usd, createdAt: row.created_at })); }
+  async setCanonicalPairOverride(chainId: number, address: Address, pairAddress: PoolAddress | null): Promise<void> {
     let canonicalPair = pairAddress;
     if (pairAddress !== null) {
       const pair = await this.db.selectFrom('pairs').select('pair_address').where('chain_id', '=', chainId).where('token_address', '=', address).where('pair_address', '=', pairAddress).executeTakeFirst();
       if (!pair) throw new Error('Canonical pair override must belong to this candidate');
     } else {
       const best = await this.db.selectFrom('pairs').select('pair_address').where('chain_id', '=', chainId).where('token_address', '=', address).where('liquidity_usd', 'is not', null).orderBy(sql`CAST(liquidity_usd AS REAL)`, 'desc').executeTakeFirst();
-      canonicalPair = best?.pair_address as Address | undefined ?? null;
+      canonicalPair = best?.pair_address as PoolAddress | undefined ?? null;
     }
     await this.db.updateTable('candidates').set({ canonical_pair_override: pairAddress, canonical_pair: canonicalPair, updated_at: new Date().toISOString() }).where('chain_id', '=', chainId).where('address', '=', address).execute();
   }
