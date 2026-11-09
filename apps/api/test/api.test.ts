@@ -8,6 +8,18 @@ let database: OpenDatabase | undefined; let app: FastifyInstance | undefined;
 afterEach(async () => { await app?.close(); await database?.close(); app = undefined; database = undefined; });
 
 describe('API integration', () => {
+  it('serves the candidates contained in a watchlist', async () => {
+    database = openDatabase(':memory:');
+    app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
+    const address = '0x1111111111111111111111111111111111111111' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address, symbol: 'FOX' });
+    const list = await database.repositories.createWatchlist({ name: 'Conviction' });
+    await database.repositories.addWatchlistItem(list.id, 4663, address);
+    const response = await app.inject({ method: 'GET', url: `/api/v1/watchlists/${list.id}/items` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data[0]).toMatchObject({ candidate: { address, symbol: 'FOX' }, tags: [] });
+  });
+
   it('validates malformed token addresses before queueing work', async () => {
     database = openDatabase(':memory:');
     app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);

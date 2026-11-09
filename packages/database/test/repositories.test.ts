@@ -5,6 +5,18 @@ let database: OpenDatabase | undefined;
 afterEach(async () => { await database?.close(); database = undefined; });
 
 describe('repositories', () => {
+  it('returns watchlist candidates with current assessment data and item metadata', async () => {
+    database = openDatabase(':memory:');
+    const address = '0x1111111111111111111111111111111111111111' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address, symbol: 'FOX', name: 'Fox Token' });
+    const list = await database.repositories.createWatchlist({ name: 'Conviction' });
+    await database.repositories.addWatchlistItem(list.id, 4663, address, ['favorite']);
+    const items = await database.repositories.listWatchlistItems(list.id);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ candidate: { address, symbol: 'FOX', watched: true }, tags: ['favorite'], note: null });
+    expect(items[0]?.addedAt).toBeTypeOf('string');
+  });
+
   it('deduplicates immutable snapshots by evidence fingerprint', async () => {
     database = openDatabase(':memory:');
     const address = '0x1111111111111111111111111111111111111111' as const;

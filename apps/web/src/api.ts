@@ -26,8 +26,10 @@ export const client = {
   operations: () => api<any>('/api/v1/operations'),
   alerts: () => api<{ data: Array<{ id: string; chainId: number; address: string; kind: string; severity: string; message: string; createdAt: string }> }>('/api/v1/alerts'),
   watchlists: () => api<{ data: Array<{ id: string; name: string; labels: string[] }> }>('/api/v1/watchlists'),
+  watchlistItems: (id: string) => api<{ data: Array<{ candidate: Candidate; tags: string[]; note: string | null; addedAt: string }> }>(`/api/v1/watchlists/${id}/items`),
   createWatchlist: (name: string) => api<{ id: string }>('/api/v1/watchlists', { method: 'POST', body: JSON.stringify({ name }) }),
-  addWatchlistItem: (id: string, chainId: number, address: string) => api<void>(`/api/v1/watchlists/${id}/items`, { method: 'POST', body: JSON.stringify({ chainId, address }) })
+  addWatchlistItem: (id: string, chainId: number, address: string) => api<void>(`/api/v1/watchlists/${id}/items`, { method: 'POST', body: JSON.stringify({ chainId, address }) }),
+  removeWatchlistItem: (id: string, chainId: number, address: string) => api<void>(`/api/v1/watchlists/${id}/items/${chainId}/${address}`, { method: 'DELETE' })
 };
 
 export function exportUrl(chainId: number, address: string, format: 'json' | 'env'): string { return `${apiBase}/api/v1/export/${chainId}/${address}?format=${format}`; }
