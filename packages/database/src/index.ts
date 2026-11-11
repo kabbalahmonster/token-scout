@@ -470,8 +470,12 @@ export class Repositories {
     }
     const candidates = new Map<string, { symbol: string | null; name: string | null; verdict: Verdict; score: number | null; confidence: number }>();
     if (identities.size) {
-      const rows = await this.db.selectFrom('candidates').select(['chain_id', 'address', 'symbol', 'name', 'verdict', 'score', 'confidence']).execute();
-      for (const candidate of rows) { const key = `${candidate.chain_id}:${candidate.address.toLowerCase()}`; if (identities.has(key)) candidates.set(key, { symbol: candidate.symbol, name: candidate.name, verdict: candidate.verdict as Verdict, score: candidate.score, confidence: candidate.confidence }); }
+      const wanted = [...identities.values()];
+      for (let offset = 0; offset < wanted.length; offset += 200) {
+        const chunk = wanted.slice(offset, offset + 200);
+        const rows = await this.db.selectFrom('candidates').select(['chain_id', 'address', 'symbol', 'name', 'verdict', 'score', 'confidence']).where((eb) => eb.or(chunk.map((identity) => eb.and([eb('chain_id', '=', identity.chainId), eb('address', '=', identity.address)])))).execute();
+        for (const candidate of rows) { const key = `${candidate.chain_id}:${candidate.address.toLowerCase()}`; candidates.set(key, { symbol: candidate.symbol, name: candidate.name, verdict: candidate.verdict as Verdict, score: candidate.score, confidence: candidate.confidence }); }
+      }
     }
     return rows.map((row) => {
       let chainId: number | null = null; let address: Address | null = null;
