@@ -269,6 +269,8 @@ the target bot's documented allocation model. If a free quote adapter works:
 - retain provider, time, inputs/outputs, price impact, available gas estimate,
   timeout/error, route state, and conservative round-trip recovery;
 - compare providers independently, showing redundancy/disagreement/staleness;
+- accept recovery math only when the provider covers the complete requested
+  exact input; treat partial quotes as unverified access, not realized loss;
 - never approve, sign, or claim the quote is execution.
 
 Route states are `not_attempted`, `not_configured`, `available`,
@@ -291,7 +293,9 @@ evidence, source times, and uncertainty. Implement:
 
 Never call a token safe because a selector was absent, verification failed, or a
 buy quote succeeded. Hard flags need clear evidence; heuristics need confidence
-and source details.
+and source details. Opcode scans must skip PUSH data and compiler metadata, and
+warning deductions must reflect evidence confidence rather than treating every
+heuristic hit as equally certain.
 
 ### Scoring, confidence, and verdict
 

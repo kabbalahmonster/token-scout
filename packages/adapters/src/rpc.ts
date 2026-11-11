@@ -68,13 +68,35 @@ const SIGNATURES: Array<[string, string, string]> = [
   ['blacklist_selector', 'Blacklist controls', 'f9f92be4'], ['pause_selector', 'Pause controls', '8456cb59'], ['mint_selector', 'Mint function', '40c10f19'],
   ['max_wallet_selector', 'Max-wallet controls', 'da90a3e9'], ['max_tx_selector', 'Max-transaction controls', '8c1f58e4'], ['trading_toggle_selector', 'Trading-enable controls', '8a8c523c']
 ];
+export function containsExecutableOpcode(code: string, opcode: number): boolean {
+  const normalized = code.toLowerCase().replace(/^0x/, '');
+  if (!normalized || normalized.length % 2 !== 0) return false;
+  let bytes = Buffer.from(normalized, 'hex');
+  // Solidity appends CBOR metadata plus a two-byte length. It is data rather
+  // than executable code and otherwise creates convincing opcode false hits.
+  if (bytes.length >= 4) {
+    const metadataLength = bytes.readUInt16BE(bytes.length - 2);
+    const metadataStart = bytes.length - metadataLength - 2;
+    if (metadataStart > 0 && metadataStart < bytes.length - 2 && bytes[metadataStart]! >= 0xa0 && bytes[metadataStart]! <= 0xbf) bytes = bytes.subarray(0, metadataStart);
+  }
+  for (let index = 0; index < bytes.length;) {
+    const current = bytes[index]!;
+    if (current === opcode) return true;
+    index += current >= 0x60 && current <= 0x7f ? current - 0x5f + 1 : 1;
+  }
+  return false;
+}
+
 function staticFlags(code: string, observedAt: string, proxyState: TriState): RiskFlag[] {
   const normalized = code.toLowerCase().replace(/^0x/, '');
+  const delegatecall = containsExecutableOpcode(code, 0xf4);
+  const selfdestruct = containsExecutableOpcode(code, 0xff);
+  const txOrigin = containsExecutableOpcode(code, 0x32);
   const flags: RiskFlag[] = SIGNATURES.map(([flagCode, label, selector]) => ({ code: flagCode, label, state: normalized ? (normalized.includes(selector) ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: normalized.includes(selector) ? 65 : 25, explanation: 'Static selector matching is a heuristic. Presence needs source review; absence does not prove the capability is absent.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: normalized.includes(selector) ? `selector 0x${selector} present` : normalized ? `selector 0x${selector} not observed` : 'bytecode unavailable' }] }));
   flags.push({ code: 'proxy', label: 'Upgradeable proxy', state: proxyState, severity: 'warning', confidence: proxyState === 'detected' ? 90 : proxyState === 'not_detected' ? 60 : 0, explanation: 'EIP-1967 implementation storage was checked. Other proxy patterns may not be recognized.', evidence: [{ source: 'robinhood_rpc_storage', observedAt, detail: `EIP-1967 implementation slot: ${proxyState}` }] });
-  flags.push({ code: 'delegatecall_opcode', label: 'Delegatecall opcode', state: normalized ? (normalized.includes('f4') ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: normalized.includes('f4') ? 35 : 15, explanation: 'Raw opcode-byte matching is low-confidence because bytes may occur in pushed constants.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: normalized.includes('f4') ? '0xf4 byte observed' : normalized ? '0xf4 byte not observed' : 'bytecode unavailable' }] });
-  flags.push({ code: 'selfdestruct_opcode', label: 'Self-destruct opcode', state: normalized ? (normalized.includes('ff') ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: normalized.includes('ff') ? 25 : 10, explanation: 'Raw byte matching is a low-confidence warning and not an audit finding.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: normalized.includes('ff') ? '0xff byte observed' : normalized ? '0xff byte not observed' : 'bytecode unavailable' }] });
-  flags.push({ code: 'tx_origin_opcode', label: 'tx.origin usage', state: normalized ? (normalized.includes('32') ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: normalized.includes('32') ? 25 : 10, explanation: 'Raw opcode-byte matching is low-confidence; disassembly/source review is required.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: normalized.includes('32') ? '0x32 byte observed' : normalized ? '0x32 byte not observed' : 'bytecode unavailable' }] });
+  flags.push({ code: 'delegatecall_opcode', label: 'Delegatecall opcode', state: normalized ? (delegatecall ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: delegatecall ? 70 : 35, explanation: 'Instruction-aware runtime scanning skips pushed constants and compiler metadata. Presence still requires source review.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: delegatecall ? 'executable DELEGATECALL (0xf4) observed' : normalized ? 'no executable DELEGATECALL observed' : 'bytecode unavailable' }] });
+  flags.push({ code: 'selfdestruct_opcode', label: 'Self-destruct opcode', state: normalized ? (selfdestruct ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: selfdestruct ? 70 : 35, explanation: 'Instruction-aware runtime scanning skips pushed constants and compiler metadata. Presence is a warning, not an audit finding.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: selfdestruct ? 'executable SELFDESTRUCT (0xff) observed' : normalized ? 'no executable SELFDESTRUCT observed' : 'bytecode unavailable' }] });
+  flags.push({ code: 'tx_origin_opcode', label: 'tx.origin usage', state: normalized ? (txOrigin ? 'detected' : 'not_detected') : 'unknown', severity: 'warning', confidence: txOrigin ? 70 : 35, explanation: 'Instruction-aware runtime scanning skips pushed constants and compiler metadata. Source review is still required.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: txOrigin ? 'executable ORIGIN (0x32) observed' : normalized ? 'no executable ORIGIN observed' : 'bytecode unavailable' }] });
   flags.push({ code: 'tax_fee_controls', label: 'Mutable transfer tax / fee', state: 'unknown', severity: 'warning', confidence: 0, explanation: 'Runtime bytecode alone cannot reliably establish every mutable transfer-fee implementation. Quotes and verified-source review are required.', evidence: [{ source: 'robinhood_rpc_bytecode', observedAt, detail: 'No authoritative tax simulator or verified source finding available' }] });
   flags.push({ code: 'pool_concentration', label: 'Pool / holder concentration', state: 'unknown', severity: 'warning', confidence: 0, explanation: 'No reliable credential-free holder/pool concentration observation was available for this scan.', evidence: [{ source: 'blockchain_data', observedAt, detail: 'Concentration evidence unavailable' }] });
   return flags;

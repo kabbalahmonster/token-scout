@@ -6,7 +6,7 @@
 | DexScreener | latest profiles, top boosted discovery, pair cross-checks, price, liquidity, volume | discovery ≤50 rpm; pairs ≤240 rpm | boosts are promotional discovery signals, not quality evidence; pair evidence is stale or unavailable |
 | Robinhood RPC | code, storage, ERC-20 reads, gas | ≤240 rpm | contract facts are unknown |
 | CoinGecko | ETH/USD reference | ≤20 rpm, 5-minute cache | analysis continues in ETH terms |
-| Sushi | read-only exact-input quote | ≤30 rpm | route is unverified, timed out, or failed |
+| Sushi | read-only exact-input quote | ≤30 rpm | route is unverified, partial, timed out, or failed |
 
 The configured public Robinhood mainnet RPC is
 `https://rpc.mainnet.chain.robinhood.com`; chain ID is 4663 and native gas is
@@ -26,3 +26,6 @@ the series, while normal retention/aggregation keeps older evidence compact.
 
 Adapter state is visible at `/operations` and `/api/v1/sources/status`.
 Unavailable values remain `null`; provider failure never becomes zero.
+Sushi responses count as available only when they report success for the full
+requested exact input. Partial input coverage is retained as `quote_failed`
+rather than converted into a misleading full-position recovery percentage.

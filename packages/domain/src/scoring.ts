@@ -14,7 +14,7 @@ function decimal(value: string | null | undefined): Decimal | null {
 function contractPoints(flags: RiskFlag[]): number {
   const detected = flags.filter((flag) => flag.state === 'detected');
   const unknown = flags.filter((flag) => flag.state === 'unknown');
-  const deduction = detected.reduce((sum, flag) => sum + (flag.severity === 'hard_fail' ? 10 : flag.severity === 'warning' ? 3 : 1), 0);
+  const deduction = detected.reduce((sum, flag) => sum + (flag.severity === 'hard_fail' ? 10 : flag.severity === 'warning' ? 3 * flag.confidence / 100 : flag.confidence / 100), 0);
   return clamp(WEIGHTS.contract - deduction - Math.min(3, unknown.length * 0.5), 0, WEIGHTS.contract);
 }
 

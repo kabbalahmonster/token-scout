@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, ResilientHttpClient, SushiQuoteAdapter } from '../src/index.js';
+import { containsExecutableOpcode, DexScreenerAdapter, GeckoTerminalAdapter, JsonRpcAdapter, ResilientHttpClient, SushiQuoteAdapter } from '../src/index.js';
 
 const options = { timeoutMs: 1000, retries: 0, cacheTtlMs: 1, requestsPerMinute: 100_000 };
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
@@ -78,11 +78,35 @@ describe('adapter fixtures', () => {
     expect(await rpc.validateContract('0x1111111111111111111111111111111111111111')).toBe(false);
   });
 
+  it('does not mistake pushed constants or Solidity metadata for executable opcodes', () => {
+    expect(containsExecutableOpcode('0x63f4ff320000', 0xf4)).toBe(false);
+    expect(containsExecutableOpcode('0x63f4ff3200f4', 0xf4)).toBe(true);
+    expect(containsExecutableOpcode('0x6000a100ff0003', 0xff)).toBe(false);
+  });
+
   it('marks an absent quote adapter not configured, never unsafe', async () => {
     const quote = new SushiQuoteAdapter('', options);
     const result = await quote.roundTrip('0x1111111111111111111111111111111111111111', '1000');
     expect(result.state).toBe('not_configured');
     expect(result.hardFail).toBe(false);
+  });
+
+  it('rejects a partial Sushi sell quote instead of treating it as full-size loss evidence', async () => {
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => response({ status: 'Success', amountIn: '1000', assumedAmountOut: '5000', priceImpact: 0.01, gasSpent: 100 }))
+      .mockImplementationOnce(() => response({ status: 'Partial', amountIn: '1000', assumedAmountOut: '100', priceImpact: 0.8, gasSpent: 100 })) as unknown as typeof fetch;
+    const quote = new SushiQuoteAdapter('https://fixture.test/quote', options, fetcher);
+    const result = await quote.roundTrip('0x1111111111111111111111111111111111111111', '1000');
+    expect(result).toMatchObject({ state: 'quote_failed', hardFail: false, recoveryPct: null, sell: { state: 'quote_failed', amountIn: '5000', amountOut: null, errorCode: 'PARTIAL_QUOTE' } });
+    expect(result.explanation).toContain('only part');
+  });
+
+  it('accepts only a full-input Sushi round trip as available', async () => {
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => response({ status: 'Success', amountIn: '1000', assumedAmountOut: '5000' }))
+      .mockImplementationOnce(() => response({ status: 'Success', amountIn: '5000', assumedAmountOut: '900' })) as unknown as typeof fetch;
+    const result = await new SushiQuoteAdapter('https://fixture.test/quote', options, fetcher).roundTrip('0x1111111111111111111111111111111111111111', '1000');
+    expect(result).toMatchObject({ state: 'available', hardFail: false, recoveryPct: 90 });
   });
 
   it('surfaces an upstream outage as degraded source health', async () => {

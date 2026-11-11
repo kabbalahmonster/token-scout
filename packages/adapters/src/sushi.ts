@@ -20,6 +20,13 @@ export class SushiQuoteAdapter {
     url.searchParams.set('maxSlippage', '0.01');
     try {
       const result = await this.client.json<any>(url.toString());
+      const upstreamStatus: string | null = typeof result?.status === 'string' ? String(result.status) : null;
+      const returnedAmountIn = result?.amountIn === undefined || result?.amountIn === null ? null : String(result.amountIn);
+      const complete = (upstreamStatus === null || upstreamStatus.toLowerCase() === 'success') && (returnedAmountIn === null || returnedAmountIn === amount);
+      if (!complete) {
+        const noRoute = upstreamStatus?.toLowerCase() === 'noway';
+        return { provider: 'sushi', quotedAt: new Date().toISOString(), state: noRoute ? 'no_route_or_liquidity' : 'quote_failed', tokenIn, tokenOut, amountIn: amount, amountOut: null, priceImpactPct: typeof result?.priceImpact === 'number' ? result.priceImpact : null, gasEstimate: result?.gasSpent === undefined && result?.gasEstimate === undefined ? null : String(result.gasSpent ?? result.gasEstimate), errorCode: upstreamStatus?.toLowerCase() === 'partial' ? 'PARTIAL_QUOTE' : returnedAmountIn !== null && returnedAmountIn !== amount ? 'INPUT_AMOUNT_MISMATCH' : noRoute ? 'NO_ROUTE' : 'INCOMPLETE_QUOTE' };
+      }
       const amountOut = result?.amountOut ?? result?.route?.amountOut ?? result?.assumedAmountOut;
       const state: RouteState = amountOut ? 'available' : 'no_route_or_liquidity';
       return { provider: 'sushi', quotedAt: new Date().toISOString(), state, tokenIn, tokenOut, amountIn: amount, amountOut: amountOut ? String(amountOut) : null, priceImpactPct: typeof result?.priceImpact === 'number' ? result.priceImpact : null, gasEstimate: result?.gasSpent === undefined && result?.gasEstimate === undefined ? null : String(result.gasSpent ?? result.gasEstimate), errorCode: amountOut ? null : 'NO_ROUTE' };
@@ -34,7 +41,7 @@ export class SushiQuoteAdapter {
     const buy = await this.quote('native', token, principalWei);
     if (buy.state !== 'available' || buy.amountOut === null) return { plannedPrincipalWei: principalWei, buy, sell: null, recoveryPct: null, state: buy.state, hardFail: false, explanation: 'No usable buy quote was returned. This is not proof the token is unsafe.' };
     const sell = await this.quote(token, 'native', buy.amountOut);
-    if (sell.state !== 'available' || sell.amountOut === null) return { plannedPrincipalWei: principalWei, buy, sell, recoveryPct: null, state: sell.state, hardFail: sell.state === 'no_route_or_liquidity', explanation: 'A buy quote existed but the same quoted quantity did not receive a sell route. Operator review is required.' };
+    if (sell.state !== 'available' || sell.amountOut === null) return { plannedPrincipalWei: principalWei, buy, sell, recoveryPct: null, state: sell.state, hardFail: sell.state === 'no_route_or_liquidity', explanation: sell.errorCode === 'PARTIAL_QUOTE' ? 'The provider quoted only part of the requested sell quantity. Route access remains unverified; a partial quote is not evidence of a severe round-trip loss.' : 'A buy quote existed but the same quoted quantity did not receive a complete sell route. Operator review is required.' };
     const recoveryPct = new Decimal(sell.amountOut).div(principalWei).mul(100).toNumber();
     return { plannedPrincipalWei: principalWei, buy, sell, recoveryPct, state: 'available', hardFail: recoveryPct < 50, explanation: `Read-only planned-size round-trip quote recovered ${recoveryPct.toFixed(2)}% before future gas and execution changes.` };
   }

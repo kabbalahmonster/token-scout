@@ -1,4 +1,4 @@
-# Scoring and confidence 2.0.0
+# Scoring and confidence 2.1.0
 
 The 100-point score is tuned for practical repeated-swing botting: swings 40,
 age/market maturity 15, liquidity 15, activity 15, executable route 10, and
@@ -14,6 +14,16 @@ Hard fails are narrowly evidence-based: attempted buy with no sell route,
 confirmed recovery below 50%, planned capital above one tenth of known pool
 liquidity, a non-contract address, or another high-confidence hazard explicitly
 classified by the scan. A missing quote is not a hard fail.
+
+Only a provider response that covers the entire requested exact input counts as
+a completed route. A partial quote is `quote_failed`: it means the provider
+could only route part of the position, not that the full position suffered the
+partial response's implied loss.
+
+Heuristic contract-warning deductions are weighted by evidence confidence.
+Runtime opcode checks disassemble instructions and skip PUSH payloads and
+Solidity compiler metadata, which prevents arbitrary data bytes from being
+reported as executable `DELEGATECALL`, `SELFDESTRUCT`, or `ORIGIN` operations.
 
 Confidence is independent. Known component coverage, retained-history coverage,
 and a completed round-trip quote contribute 45/35/20%. Stale/missing history,

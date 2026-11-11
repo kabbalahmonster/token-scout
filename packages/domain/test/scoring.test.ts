@@ -51,6 +51,15 @@ describe('transparent scoring', () => {
     expect(result.materialUnknowns).toContain('executable_route_unverified');
   });
 
+  it('scales heuristic warning deductions by evidence confidence', () => {
+    const warning = (confidence: number): RiskFlag => ({ code: `warning_${confidence}`, label: 'Heuristic warning', state: 'detected', severity: 'warning', confidence, explanation: 'fixture', evidence: [] });
+    const low = scoreCandidate({ latest, swings: swingStudy, route: availableRoute, risks: [warning(25)], now: '2026-01-01T00:00:00.000Z' });
+    const high = scoreCandidate({ latest, swings: swingStudy, route: availableRoute, risks: [warning(100)], now: '2026-01-01T00:00:00.000Z' });
+    const component = (result: typeof low) => result.components.find((item) => item.key === 'contract')?.points;
+    expect(component(low)).toBe(4.25);
+    expect(component(high)).toBe(2);
+  });
+
   it('does not pass a market whose swing behaviour is mediocre', () => {
     const mediocre = { ...swingStudy, results: swingStudy.results.map((result) => ({ ...result, suitability: 55 })) };
     const result = scoreCandidate({ latest, swings: mediocre, route: availableRoute, risks: [unknownRisk], now: '2026-01-01T00:00:00.000Z' });
