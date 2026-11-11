@@ -70,7 +70,7 @@ export function Operations() {
 
     <div className="assessment-console">
       <section className="queue-panel panel">
-        <div className="console-head"><div><h2><ListOrdered size={16}/> Assessment queue</h2><p>Manual submissions lead; scheduled refresh work follows the worker's real priority order.</p></div><span className="pulse-label"><i/> updates every 2s</span></div>
+        <div className="console-head"><div><h2><ListOrdered size={16}/> Assessment queue</h2><p>Manual submissions lead; watched, exploration, and refresh work share weighted capacity without starvation.</p></div><span className="pulse-label"><i/> updates every 2s</span></div>
         <div className="queue-controls">
           <label className="queue-search"><Search size={15}/><input aria-label="Search assessment queue" placeholder="Contract, symbol, name, or job ID" value={search} onChange={(event) => setSearch(event.target.value)}/></label>
           <select aria-label="Assessment source" value={origin} onChange={(event) => setOrigin(event.target.value)}><option value="">All sources</option><option value="manual">Manual priority</option><option value="import">Bulk import</option><option value="discovery">Discovery</option><option value="watchlist">Watchlist</option><option value="refresh">Priority refresh</option><option value="universe">Universe refresh</option><option value="maintenance">Maintenance</option></select>

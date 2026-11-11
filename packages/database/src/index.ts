@@ -79,6 +79,7 @@ export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'stat
 export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; minPairAgeDays?: number; maxPairAgeDays?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 export interface RefreshCandidate { chainId: number; address: Address; verdict: Verdict; score: number; lastAssessedAt: string }
 export type JobOrigin = 'manual' | 'import' | 'discovery' | 'watchlist' | 'refresh' | 'universe' | 'maintenance' | 'other';
+export type JobLane = 'watchlist' | 'exploration' | 'refresh' | 'universe';
 export interface JobActivity {
   id: string; kind: string; origin: JobOrigin; state: string; chainId: number | null; address: Address | null;
   symbol: string | null; name: string | null; verdict: Verdict | null; score: number | null; confidence: number | null;
@@ -399,6 +400,24 @@ export class Repositories {
     // Scheduled bucket keys are permanent idempotency keys. The active-job
     // unique index prevents concurrent duplicates, while this historical check
     // prevents the ten-second scheduler from recreating a completed bucket.
+    // Assessments additionally coalesce by contract. Otherwise each hourly
+    // bucket can append another copy of work that has not started yet.
+    if (kind === 'assess') {
+      const payloadJson = JSON.stringify(payload); const now = new Date().toISOString();
+      const active = await this.db.selectFrom('jobs').selectAll().where('kind', '=', 'assess').where('payload_json', '=', payloadJson).where('state', 'in', ['queued', 'running']).execute();
+      const running = active.find((job) => job.state === 'running');
+      if (running) return running.id;
+      const queued = active.sort((left, right) => this.jobPriority(left.kind, left.dedupe_key) - this.jobPriority(right.kind, right.dedupe_key) || left.created_at.localeCompare(right.created_at))[0];
+      if (queued) {
+        if (this.jobPriority(kind, dedupeKey) < this.jobPriority(queued.kind, queued.dedupe_key)) {
+          await this.db.transaction().execute(async (trx) => {
+            await trx.updateTable('jobs').set({ dedupe_key: dedupeKey, run_after: runAfter < queued.run_after ? runAfter : queued.run_after, progress_stage: 'priority_promoted', updated_at: now }).where('id', '=', queued.id).where('state', '=', 'queued').execute();
+            await trx.insertInto('job_events').values({ job_id: queued.id, event_type: 'priority_promoted', stage: 'priority_promoted', message: 'Existing assessment moved into a higher-priority queue lane.', progress_percent: 0, created_at: now }).execute();
+          });
+        }
+        return queued.id;
+      }
+    }
     const existing = await this.db.selectFrom('jobs').select('id').where('kind', '=', kind).where('dedupe_key', '=', dedupeKey).executeTakeFirst();
     return existing ? null : this.enqueue(kind, dedupeKey, payload, runAfter);
   }
@@ -419,8 +438,39 @@ export class Repositories {
     if (dedupeKey.startsWith('watch:')) return 'watchlist';
     if (dedupeKey.startsWith('refresh:')) return 'refresh';
     if (dedupeKey.startsWith('universe:')) return 'universe';
+    if (dedupeKey.startsWith('explore:') || /^\d+:[^:]+:\d{4}-\d{2}-\d{2}T\d{2}$/.test(dedupeKey)) return 'discovery';
     if (kind === 'retention') return 'maintenance';
     return 'other';
+  }
+
+  private jobLane(kind: string, dedupeKey: string): JobLane | 'urgent' | 'other' {
+    if (dedupeKey.startsWith('manual:') || kind === 'discover' || kind === 'retention') return 'urgent';
+    if (dedupeKey.startsWith('watch:')) return 'watchlist';
+    if (dedupeKey.startsWith('refresh:')) return 'refresh';
+    if (dedupeKey.startsWith('universe:')) return 'universe';
+    if (kind === 'assess' && (dedupeKey.startsWith('explore:') || dedupeKey.startsWith('import:') || /^\d+:[^:]+:\d{4}-\d{2}-\d{2}T\d{2}$/.test(dedupeKey))) return 'exploration';
+    return 'other';
+  }
+
+  private fairQueueOrder(due: DatabaseSchema['jobs'][]): DatabaseSchema['jobs'][] {
+    const ordered = [...due].sort((left, right) => this.jobPriority(left.kind, left.dedupe_key) - this.jobPriority(right.kind, right.dedupe_key)
+      || left.run_after.localeCompare(right.run_after) || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+    const lanes = new Map<string, DatabaseSchema['jobs'][]>(['urgent', 'watchlist', 'exploration', 'refresh', 'universe', 'other'].map((lane) => [lane, []]));
+    for (const job of ordered) lanes.get(this.jobLane(job.kind, job.dedupe_key))!.push(job);
+    // Watchlist remains the largest share, while every twelve claims reserve
+    // three exploration slots and one slot for each slower update lane.
+    const pattern: JobLane[] = ['watchlist', 'watchlist', 'watchlist', 'exploration', 'watchlist', 'watchlist', 'refresh', 'exploration', 'watchlist', 'watchlist', 'universe', 'exploration'];
+    const result: DatabaseSchema['jobs'][] = []; let slot = 0;
+    while (result.length < due.length) {
+      const urgent = lanes.get('urgent')!.shift();
+      if (urgent) { result.push(urgent); continue; }
+      const preferred = lanes.get(pattern[slot % pattern.length]!)!.shift();
+      let fallback = preferred;
+      if (!fallback) for (const lane of ['watchlist', 'exploration', 'refresh', 'universe', 'other']) { fallback = lanes.get(lane)!.shift(); if (fallback) break; }
+      if (!fallback) break;
+      result.push(fallback); slot += 1;
+    }
+    return result;
   }
 
   private fallbackJobSeconds(kind: string): number { return kind === 'discover' ? 180 : kind === 'retention' ? 60 : 15; }
@@ -446,8 +496,7 @@ export class Repositories {
       this.db.selectFrom('jobs').selectAll().where('state', '=', 'running').orderBy('started_at').execute(),
       this.jobEstimates()
     ]);
-    due.sort((left, right) => this.jobPriority(left.kind, left.dedupe_key) - this.jobPriority(right.kind, right.dedupe_key)
-      || left.run_after.localeCompare(right.run_after) || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+    const orderedDue = this.fairQueueOrder(due);
     const estimate = (job: Pick<DatabaseSchema['jobs'], 'kind'>) => estimates.get(job.kind) ?? this.fallbackJobSeconds(job.kind);
     const runningWait = running.reduce((seconds, job) => {
       const elapsed = job.started_at ? Math.max(0, (Date.parse(now) - Date.parse(job.started_at)) / 1000) : 0;
@@ -455,8 +504,8 @@ export class Repositories {
     }, 0);
     let cumulative = runningWait;
     const positions = new Map<string, number>(); const waits = new Map<string, number>();
-    due.forEach((job, index) => { positions.set(job.id, index + 1); waits.set(job.id, Math.max(0, Math.ceil(cumulative))); cumulative += estimate(job); });
-    return { due, positions, waits, running };
+    orderedDue.forEach((job, index) => { positions.set(job.id, index + 1); waits.set(job.id, Math.max(0, Math.ceil(cumulative))); cumulative += estimate(job); });
+    return { due: orderedDue, positions, waits, running };
   }
 
   private async jobActivityFromRows(rows: DatabaseSchema['jobs'][]): Promise<JobActivity[]> {
@@ -493,7 +542,7 @@ export class Repositories {
 
   async listJobActivity(filters: JobActivityFilters = {}): Promise<JobActivity[]> {
     const limit = Math.max(1, Math.min(filters.limit ?? 100, 250));
-    let query = this.db.selectFrom('jobs').selectAll();
+    let query = this.db.selectFrom('jobs').selectAll().where('state', '<>', 'superseded');
     if (filters.state === 'active') query = query.where('state', 'in', ['queued', 'running']);
     else if (filters.state) query = query.where('state', '=', filters.state);
     if (filters.kind) query = query.where('kind', '=', filters.kind);
@@ -519,15 +568,27 @@ export class Repositories {
     return rows.map((row) => ({ id: row.id, jobId: row.job_id, eventType: row.event_type, stage: row.stage, message: row.message, progressPercent: row.progress_percent, createdAt: row.created_at }));
   }
 
-  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> {
+  async claimJob(workerId: string, preferredLane?: JobLane): Promise<{ id: string; kind: string; payload: any; attempts: number; lane: JobLane | 'urgent' | 'other' } | null> {
     return this.db.transaction().execute(async (trx) => {
-      const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' THEN 0 WHEN kind = 'discover' THEN 1 WHEN kind = 'retention' THEN 2 WHEN dedupe_key LIKE 'watch:%' THEN 3 WHEN dedupe_key LIKE 'refresh:%' THEN 5 WHEN dedupe_key LIKE 'universe:%' THEN 6 ELSE 4 END`).orderBy('run_after').orderBy('created_at').orderBy('id').executeTakeFirst();
+      const laneOrder = preferredLane === 'watchlist'
+        ? sql<number>`CASE WHEN dedupe_key LIKE 'watch:%' THEN 0 ELSE 1 END`
+        : preferredLane === 'refresh'
+          ? sql<number>`CASE WHEN dedupe_key LIKE 'refresh:%' THEN 0 ELSE 1 END`
+          : preferredLane === 'universe'
+            ? sql<number>`CASE WHEN dedupe_key LIKE 'universe:%' THEN 0 ELSE 1 END`
+            : preferredLane === 'exploration'
+              ? sql<number>`CASE WHEN kind = 'assess' AND dedupe_key NOT LIKE 'manual:%' AND dedupe_key NOT LIKE 'watch:%' AND dedupe_key NOT LIKE 'refresh:%' AND dedupe_key NOT LIKE 'universe:%' THEN 0 ELSE 1 END`
+              : sql<number>`CASE WHEN 1 = 1 THEN 0 ELSE 1 END`;
+      const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString())
+        .orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' OR kind = 'discover' OR kind = 'retention' THEN 0 ELSE 1 END`)
+        .orderBy(laneOrder)
+        .orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' THEN 0 WHEN kind = 'discover' THEN 1 WHEN kind = 'retention' THEN 2 WHEN dedupe_key LIKE 'watch:%' THEN 3 WHEN dedupe_key LIKE 'refresh:%' THEN 5 WHEN dedupe_key LIKE 'universe:%' THEN 6 ELSE 4 END`).orderBy('run_after').orderBy('created_at').orderBy('id').executeTakeFirst();
       if (!row) return null;
       const now = new Date().toISOString();
       const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: now, locked_by: workerId, attempts: row.attempts + 1, last_error: null, progress_stage: 'starting', progress_percent: 1, started_at: now, completed_at: null, updated_at: now }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst();
       if (!updated) return null;
       await trx.insertInto('job_events').values({ job_id: updated.id, event_type: 'started', stage: 'starting', message: `Worker started ${updated.kind}.`, progress_percent: 1, created_at: now }).execute();
-      return { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts };
+      return { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts, lane: this.jobLane(updated.kind, updated.dedupe_key) };
     });
   }
 
@@ -665,7 +726,7 @@ export class Repositories {
       `.execute(trx);
 
       const discovery = await trx.deleteFrom('discovery_records').where('ingested_at', '<', discoveryCutoff).executeTakeFirst();
-      const completedJobs = await trx.deleteFrom('jobs').where('state', '=', 'completed').where('updated_at', '<', completedJobCutoff).executeTakeFirst();
+      const completedJobs = await trx.deleteFrom('jobs').where('state', 'in', ['completed', 'superseded']).where('updated_at', '<', completedJobCutoff).executeTakeFirst();
       const failedJobs = await trx.deleteFrom('jobs').where('state', '=', 'failed').where('updated_at', '<', failedJobCutoff).executeTakeFirst();
       const alerts = await sql`
         DELETE FROM alerts

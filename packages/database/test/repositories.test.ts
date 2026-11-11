@@ -45,6 +45,38 @@ describe('repositories', () => {
     expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'universe' });
   });
 
+  it('coalesces periodic assessment buckets by contract and promotes watchlist priority', async () => {
+    database = openDatabase(':memory:');
+    const address = '0x1111111111111111111111111111111111111111' as const;
+    const payload = { chainId: 4663, address };
+    const exploration = await database.repositories.enqueueScheduled('assess', `explore:4663:${address}:2026-01-01T00`, payload, '2026-01-01T00:00:00.000Z');
+    const duplicate = await database.repositories.enqueueScheduled('assess', `explore:4663:${address}:2026-01-01T01`, payload, '2026-01-01T01:00:00.000Z');
+    const promoted = await database.repositories.enqueueScheduled('assess', `watch:4663:${address}:1`, payload, '2026-01-01T00:00:01.000Z');
+    expect(duplicate).toBe(exploration);
+    expect(promoted).toBe(exploration);
+    expect(await database.repositories.listJobActivity({ state: 'queued' })).toMatchObject([{ id: exploration, origin: 'watchlist', position: 1, progressStage: 'priority_promoted' }]);
+    expect((await database.repositories.jobEvents(exploration!)).map((event) => event.eventType)).toEqual(['priority_promoted', 'queued']);
+  });
+
+  it('honors a fair-lane claim without letting it jump urgent work', async () => {
+    database = openDatabase(':memory:');
+    await database.repositories.enqueue('assess', 'watch:4663:watch:1', { lane: 'watch' }, '2026-01-01T00:00:00.000Z');
+    await database.repositories.enqueue('assess', 'explore:4663:explore:1', { lane: 'explore' }, '2026-01-01T00:00:01.000Z');
+    await database.repositories.enqueue('assess', 'refresh:4663:refresh:1', { lane: 'refresh' }, '2026-01-01T00:00:02.000Z');
+    await database.repositories.enqueue('discover', 'discovery:1', { lane: 'urgent' }, '2026-01-01T00:00:03.000Z');
+    expect((await database.repositories.claimJob('test', 'exploration'))?.payload).toEqual({ lane: 'urgent' });
+    expect((await database.repositories.claimJob('test', 'exploration'))?.payload).toEqual({ lane: 'explore' });
+    expect((await database.repositories.claimJob('test', 'refresh'))?.payload).toEqual({ lane: 'refresh' });
+    expect((await database.repositories.claimJob('test', 'watchlist'))?.payload).toEqual({ lane: 'watch' });
+  });
+
+  it('reports queue positions in the same weighted order used by the worker', async () => {
+    database = openDatabase(':memory:');
+    for (let index = 0; index < 4; index += 1) await database.repositories.enqueue('assess', `watch:4663:${index}:1`, { lane: `watch-${index}` }, `2026-01-01T00:00:0${index}.000Z`);
+    const exploration = await database.repositories.enqueue('assess', 'explore:4663:new:1', { lane: 'explore' }, '2026-01-01T00:00:09.000Z');
+    expect((await database.repositories.jobQueueStatus(exploration!))?.position).toBe(4);
+  });
+
   it('claims manual assessments before discovery and reports their live queue position', async () => {
     database = openDatabase(':memory:');
     await database.repositories.enqueue('discover', 'discovery:1', { lane: 'discovery' }, '2026-01-01T00:00:00.000Z');

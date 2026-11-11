@@ -52,19 +52,22 @@ candidate, including low-score and rejected coins. Its default cadence is
 `UNIVERSE_REFRESH_BATCH_SIZE=5` queued at once. Priority candidates are
 excluded from this lane because the hourly lane already covers them.
 
-Queue priority is deterministic: single-contract manual assessment, discovery,
-daily retention, watched assessment, discovery/import assessment,
-high-potential refresh, then full-universe refresh. A manual assessment is the
-next job claimed after the current non-preemptible job finishes. The wide lane
-therefore consumes idle provider capacity but cannot sit ahead of operator or
-fresh-discovery work. At the current 5,800-candidate scale, a 72-hour rotation averages
+Queue service is deterministic and weighted. Manual assessments, discovery
+cycles, and daily retention remain urgent. Ordinary assessment capacity then
+follows a twelve-claim pattern: seven watched assessments, three
+discovery/import assessments, one high-potential refresh, and one
+full-universe refresh, with empty slots immediately borrowed by the next
+available lane. A manual assessment is still the next job claimed after the
+current non-preemptible job finishes. Scheduled assessments for the same
+contract are coalesced while one is queued or running; a watchlist request
+promotes the existing job instead of appending a duplicate. At the current 5,800-candidate scale, a 72-hour rotation averages
 about 81 long-tail assessments per hour before rediscovery removes duplicate
 need. Provider limiters remain authoritative if individual assessments need
 extra calls.
 
 For a daily rotation, set `UNIVERSE_REFRESH_SECONDS=86400` and
-`GECKOTERMINAL_REQUESTS_PER_MINUTE=10`. The five-job queue cap and discovery
-priority remain unchanged.
+`GECKOTERMINAL_REQUESTS_PER_MINUTE=10`. The five-job universe intake cap,
+urgent discovery cycles, and weighted assessment shares remain unchanged.
 
 `JOB_LEASE_SECONDS` defaults to 900. A running job whose worker lease is older
 than that is safely returned to the queue. DoomScout jobs perform discovery,

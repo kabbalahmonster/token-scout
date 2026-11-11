@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from '@doomscout/config';
-import { openDatabase } from '@doomscout/database';
+import { openDatabase, type JobLane } from '@doomscout/database';
 import { AssessmentService, staleAfterSeconds } from './service.js';
 
 const config = loadConfig();
@@ -8,6 +8,8 @@ const database = openDatabase(config.DATABASE_PATH);
 const service = new AssessmentService(config, database.repositories);
 const workerId = `worker-${randomUUID().slice(0, 8)}`;
 let stopping = false;
+const fairQueuePattern: JobLane[] = ['watchlist', 'watchlist', 'watchlist', 'exploration', 'watchlist', 'watchlist', 'refresh', 'exploration', 'watchlist', 'watchlist', 'universe', 'exploration'];
+let queueSlot = 0;
 
 function log(level: 'info' | 'warn' | 'error', event: string, detail: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ level, event, at: new Date().toISOString(), ...detail }));
@@ -62,8 +64,9 @@ async function schedule(): Promise<void> {
 }
 
 async function runJob(): Promise<boolean> {
-  const job = await database.repositories.claimJob(workerId);
+  const job = await database.repositories.claimJob(workerId, fairQueuePattern[queueSlot % fairQueuePattern.length]);
   if (!job) return false;
+  if (job.lane !== 'urgent') queueSlot = (queueSlot + 1) % fairQueuePattern.length;
   try {
     if (job.kind === 'discover') { await database.repositories.updateJobProgress(job.id, 'discovering_markets', 10, 'Exploring indexed market feeds for eligible contracts.'); await service.discover(); }
     else if (job.kind === 'assess') await service.assess(Number(job.payload.chainId), String(job.payload.address), (stage, percent, message) => database.repositories.updateJobProgress(job.id, stage, percent, message));

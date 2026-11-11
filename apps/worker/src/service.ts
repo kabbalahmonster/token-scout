@@ -61,7 +61,7 @@ export class AssessmentService {
         if (candidate && ['stale', 'archived'].includes(candidate.state) && !candidate.assessmentError) {
           await this.repositories.setCandidateState(this.config.CHAIN_ID, lead.address, candidate.watched ? 'watched' : candidate.score === null ? 'collecting_history' : 'assessed');
         }
-        await this.repositories.enqueueScheduled('assess', `${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
+        await this.repositories.enqueueScheduled('assess', `explore:${this.config.CHAIN_ID}:${lead.address}:${new Date().toISOString().slice(0, 13)}`, { chainId: this.config.CHAIN_ID, address: lead.address });
         accepted += 1;
       }
       // Keep DexScreener profiles and top boosts as secondary discovery feeds.

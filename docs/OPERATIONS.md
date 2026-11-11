@@ -31,7 +31,7 @@ token, including behind a loopback reverse proxy. Health and readiness remain
 unauthenticated for orchestration.
 
 The Operations assessment console is the queue's operator view. It updates
-every two seconds, shows manual-priority position and estimated start, exposes
+every two seconds, shows weighted-service position and estimated start, exposes
 the running assessment stage, and retains recent completions and final failures.
 Selecting a row narrows the terminal readout to that job; address copy and
 assessment drill-down remain available from the same row. Queue and timeline
@@ -73,10 +73,12 @@ Back up the database, rebuild, and restart only the worker. Confirm that the
 queue remains bounded and that `geckoterminal`, `dexscreener_pairs`,
 `robinhood_rpc`, and `sushi_quote` remain healthy in Operations. Rollback is a
 worker stop, setting both refresh switches to `false`, rebuilding the previous
-revision if needed, and restarting the worker; no schema or state migration is
-required. Discovery has queue precedence over both refresh lanes. A five-job
-wide-lane batch limits how long newly queued discovery can wait even if a
-provider call is already in flight.
+revision if needed, and restarting the worker. Migration 008 marks redundant
+queued assessment rows as `superseded`; it does not alter research evidence or
+require a reverse migration for an application rollback. The weighted queue reserves recurring capacity for discovery and
+both refresh lanes while watchlist work keeps the largest share. Active work
+for one contract is coalesced across periodic buckets, preventing overdue
+refreshes from multiplying in the queue.
 The 10 rpm GeckoTerminal budget supports a daily sweep at the current universe
 size while remaining below the key-free ceiling; reduce it and lengthen the
 universe cadence together if Operations reports throttling.

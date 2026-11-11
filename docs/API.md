@@ -15,8 +15,8 @@ running, completed, or failed status for UI polling.
 Queue observability is read-only:
 
 - `GET /api/v1/jobs` lists active and retained jobs with filters for state,
-  kind, origin, and contract/symbol/job search. Queue positions use the exact
-  worker priority order, and estimates use recent median completion times with
+  kind, origin, and contract/symbol/job search. Queue positions use the same
+  weighted lane order as the worker, and estimates use recent median completion times with
   bounded fallbacks.
 - `GET /api/v1/job-events` returns the retained exploration timeline globally
   or for one `jobId`: contract validation, market collection, pool selection,
