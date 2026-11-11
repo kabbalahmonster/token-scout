@@ -57,7 +57,9 @@ cycles, and daily retention remain urgent. Ordinary assessment capacity then
 follows a twelve-claim pattern: seven watched assessments, three
 discovery/import assessments, one high-potential refresh, and one
 full-universe refresh, with empty slots immediately borrowed by the next
-available lane. A manual assessment is still the next job claimed after the
+available lane. Two exploration slots serve the freshest leads and one serves
+the oldest queued lead, keeping intake responsive while steadily retiring debt.
+A manual assessment is still the next job claimed after the
 current non-preemptible job finishes. Scheduled assessments for the same
 contract are coalesced while one is queued or running; a watchlist request
 promotes the existing job instead of appending a duplicate. At the current 5,800-candidate scale, a 72-hour rotation averages

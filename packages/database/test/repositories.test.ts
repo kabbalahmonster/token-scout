@@ -77,6 +77,16 @@ describe('repositories', () => {
     expect((await database.repositories.jobQueueStatus(exploration!))?.position).toBe(4);
   });
 
+  it('serves fresh exploration promptly while retaining an oldest-debt slot', async () => {
+    database = openDatabase(':memory:');
+    const old = await database.repositories.enqueue('assess', 'explore:4663:old:1', { lane: 'old' }, '2026-01-01T00:00:00.000Z');
+    const fresh = await database.repositories.enqueue('assess', 'explore:4663:new:1', { lane: 'new' }, '2026-01-01T00:00:01.000Z');
+    await database.db.updateTable('jobs').set({ created_at: '2026-01-01T00:00:00.000Z' }).where('id', '=', old!).execute();
+    await database.db.updateTable('jobs').set({ created_at: '2026-01-01T00:00:01.000Z' }).where('id', '=', fresh!).execute();
+    expect((await database.repositories.claimJob('test', 'exploration-newest'))?.payload).toEqual({ lane: 'new' });
+    expect((await database.repositories.claimJob('test', 'exploration'))?.payload).toEqual({ lane: 'old' });
+  });
+
   it('claims manual assessments before discovery and reports their live queue position', async () => {
     database = openDatabase(':memory:');
     await database.repositories.enqueue('discover', 'discovery:1', { lane: 'discovery' }, '2026-01-01T00:00:00.000Z');

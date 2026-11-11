@@ -80,6 +80,7 @@ export interface CandidateFilters { state?: CandidateState; watched?: boolean; v
 export interface RefreshCandidate { chainId: number; address: Address; verdict: Verdict; score: number; lastAssessedAt: string }
 export type JobOrigin = 'manual' | 'import' | 'discovery' | 'watchlist' | 'refresh' | 'universe' | 'maintenance' | 'other';
 export type JobLane = 'watchlist' | 'exploration' | 'refresh' | 'universe';
+export type JobQueuePreference = JobLane | 'exploration-newest';
 export interface JobActivity {
   id: string; kind: string; origin: JobOrigin; state: string; chainId: number | null; address: Address | null;
   symbol: string | null; name: string | null; verdict: Verdict | null; score: number | null; confidence: number | null;
@@ -459,12 +460,14 @@ export class Repositories {
     for (const job of ordered) lanes.get(this.jobLane(job.kind, job.dedupe_key))!.push(job);
     // Watchlist remains the largest share, while every twelve claims reserve
     // three exploration slots and one slot for each slower update lane.
-    const pattern: JobLane[] = ['watchlist', 'watchlist', 'watchlist', 'exploration', 'watchlist', 'watchlist', 'refresh', 'exploration', 'watchlist', 'watchlist', 'universe', 'exploration'];
+    const pattern: JobQueuePreference[] = ['watchlist', 'watchlist', 'watchlist', 'exploration-newest', 'watchlist', 'watchlist', 'refresh', 'exploration', 'watchlist', 'watchlist', 'universe', 'exploration-newest'];
     const result: DatabaseSchema['jobs'][] = []; let slot = 0;
     while (result.length < due.length) {
       const urgent = lanes.get('urgent')!.shift();
       if (urgent) { result.push(urgent); continue; }
-      const preferred = lanes.get(pattern[slot % pattern.length]!)!.shift();
+      const preference = pattern[slot % pattern.length]!;
+      const preferredLane = preference === 'exploration-newest' ? 'exploration' : preference;
+      const preferred = preference === 'exploration-newest' ? lanes.get(preferredLane)!.pop() : lanes.get(preferredLane)!.shift();
       let fallback = preferred;
       if (!fallback) for (const lane of ['watchlist', 'exploration', 'refresh', 'universe', 'other']) { fallback = lanes.get(lane)!.shift(); if (fallback) break; }
       if (!fallback) break;
@@ -568,7 +571,7 @@ export class Repositories {
     return rows.map((row) => ({ id: row.id, jobId: row.job_id, eventType: row.event_type, stage: row.stage, message: row.message, progressPercent: row.progress_percent, createdAt: row.created_at }));
   }
 
-  async claimJob(workerId: string, preferredLane?: JobLane): Promise<{ id: string; kind: string; payload: any; attempts: number; lane: JobLane | 'urgent' | 'other' } | null> {
+  async claimJob(workerId: string, preferredLane?: JobQueuePreference): Promise<{ id: string; kind: string; payload: any; attempts: number; lane: JobLane | 'urgent' | 'other' } | null> {
     return this.db.transaction().execute(async (trx) => {
       const laneOrder = preferredLane === 'watchlist'
         ? sql<number>`CASE WHEN dedupe_key LIKE 'watch:%' THEN 0 ELSE 1 END`
@@ -576,12 +579,16 @@ export class Repositories {
           ? sql<number>`CASE WHEN dedupe_key LIKE 'refresh:%' THEN 0 ELSE 1 END`
           : preferredLane === 'universe'
             ? sql<number>`CASE WHEN dedupe_key LIKE 'universe:%' THEN 0 ELSE 1 END`
-            : preferredLane === 'exploration'
+            : preferredLane === 'exploration' || preferredLane === 'exploration-newest'
               ? sql<number>`CASE WHEN kind = 'assess' AND dedupe_key NOT LIKE 'manual:%' AND dedupe_key NOT LIKE 'watch:%' AND dedupe_key NOT LIKE 'refresh:%' AND dedupe_key NOT LIKE 'universe:%' THEN 0 ELSE 1 END`
               : sql<number>`CASE WHEN 1 = 1 THEN 0 ELSE 1 END`;
+      const laneAgeOrder = preferredLane === 'exploration-newest'
+        ? sql<string>`CASE WHEN kind = 'assess' AND dedupe_key NOT LIKE 'manual:%' AND dedupe_key NOT LIKE 'watch:%' AND dedupe_key NOT LIKE 'refresh:%' AND dedupe_key NOT LIKE 'universe:%' THEN created_at ELSE '' END DESC`
+        : sql<string>`CASE WHEN 1 = 1 THEN '' ELSE created_at END`;
       const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString())
         .orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' OR kind = 'discover' OR kind = 'retention' THEN 0 ELSE 1 END`)
         .orderBy(laneOrder)
+        .orderBy(laneAgeOrder)
         .orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' THEN 0 WHEN kind = 'discover' THEN 1 WHEN kind = 'retention' THEN 2 WHEN dedupe_key LIKE 'watch:%' THEN 3 WHEN dedupe_key LIKE 'refresh:%' THEN 5 WHEN dedupe_key LIKE 'universe:%' THEN 6 ELSE 4 END`).orderBy('run_after').orderBy('created_at').orderBy('id').executeTakeFirst();
       if (!row) return null;
       const now = new Date().toISOString();

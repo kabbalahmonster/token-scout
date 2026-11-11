@@ -78,7 +78,9 @@ queued assessment rows as `superseded`; it does not alter research evidence or
 require a reverse migration for an application rollback. The weighted queue reserves recurring capacity for discovery and
 both refresh lanes while watchlist work keeps the largest share. Active work
 for one contract is coalesced across periodic buckets, preventing overdue
-refreshes from multiplying in the queue.
+refreshes from multiplying in the queue. Exploration alternates fresh-lead
+service with an oldest-first debt slot so neither new intake nor old work can
+starve.
 The 10 rpm GeckoTerminal budget supports a daily sweep at the current universe
 size while remaining below the key-free ceiling; reduce it and lengthen the
 universe cadence together if Operations reports throttling.

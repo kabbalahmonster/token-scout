@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from '@doomscout/config';
-import { openDatabase, type JobLane } from '@doomscout/database';
+import { openDatabase, type JobQueuePreference } from '@doomscout/database';
 import { AssessmentService, staleAfterSeconds } from './service.js';
 
 const config = loadConfig();
@@ -8,7 +8,7 @@ const database = openDatabase(config.DATABASE_PATH);
 const service = new AssessmentService(config, database.repositories);
 const workerId = `worker-${randomUUID().slice(0, 8)}`;
 let stopping = false;
-const fairQueuePattern: JobLane[] = ['watchlist', 'watchlist', 'watchlist', 'exploration', 'watchlist', 'watchlist', 'refresh', 'exploration', 'watchlist', 'watchlist', 'universe', 'exploration'];
+const fairQueuePattern: JobQueuePreference[] = ['watchlist', 'watchlist', 'watchlist', 'exploration-newest', 'watchlist', 'watchlist', 'refresh', 'exploration', 'watchlist', 'watchlist', 'universe', 'exploration-newest'];
 let queueSlot = 0;
 
 function log(level: 'info' | 'warn' | 'error', event: string, detail: Record<string, unknown> = {}) {
