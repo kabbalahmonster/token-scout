@@ -21,7 +21,7 @@ export const client = {
   candidate: (chainId: number, address: string) => api<CandidateDetail>(`/api/v1/candidates/${chainId}/${address}`),
   setCanonicalPair: (chainId: number, address: string, pairAddress: string | null) => api<void>(`/api/v1/candidates/${chainId}/${address}/canonical-pair`, { method: 'PATCH', body: JSON.stringify({ pairAddress }) }),
   history: (chainId: number, address: string) => api<{ data: MarketSnapshot[] }>(`/api/v1/candidates/${chainId}/${address}/history`),
-  assess: (address: string) => api<AssessmentQueued>('/api/v1/candidates/assess', { method: 'POST', body: JSON.stringify({ chainId: 4663, address }) }),
+  assess: (address: string, chainId = 4663) => api<AssessmentQueued>('/api/v1/candidates/assess', { method: 'POST', body: JSON.stringify({ chainId, address }) }),
   job: (jobId: string) => api<QueueStatus>(`/api/v1/jobs/${jobId}`),
   jobs: (query = '') => api<{ data: JobActivity[]; generatedAt: string }>(`/api/v1/jobs${query}`),
   jobEvents: (query = '') => api<{ data: JobEvent[]; generatedAt: string }>(`/api/v1/job-events${query}`),

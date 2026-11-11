@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, Che
 import type { AssetType, Candidate } from '@doomscout/domain';
 import { client } from '../api.js';
 import { PriceChart } from '../components/PriceChart.js';
+import { ReassessButton } from '../components/ReassessButton.js';
 import { Age, CandidateMarketCap, Money, StateBadge, VerdictBadge } from '../components/Status.js';
 
 const column = createColumnHelper<Candidate>();
@@ -137,7 +138,7 @@ export function Scoutboard() {
     column.accessor('swingEventsPerDay', { header: 'Events/day', cell: (info) => info.getValue() === null || info.getValue() === undefined ? <span className="unknown">collecting</span> : info.getValue()!.toFixed(2) }),
     column.accessor('routeState', { header: 'Route', cell: (info) => <StateBadge state={info.getValue() ?? 'not_attempted'}/> }),
     column.display({ id: 'flags', header: 'Flags', cell: ({ row }) => { const flags = row.original.flags.filter((flag) => flag.state === 'detected'); return <span className={flags.length ? 'flag-count' : 'muted'}>{flags.length ? <><AlertTriangle size={14}/>{flags.length}</> : 'none detected*'}</span>; } }),
-    column.display({ id: 'go', cell: ({ row }) => { const candidate = row.original; const expanded = expandedAddress === candidate.address; return <div className="row-actions"><QuickWatch candidate={candidate} lists={watchlists.data?.data ?? []} added={addedAddresses.has(candidate.address)} pending={watch.isPending && watch.variables.address === candidate.address} failed={watchErrorAddress === candidate.address} onWatch={(selected) => watch.mutate(selected)}/><button className="row-expand" type="button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${candidate.symbol ?? candidate.address} assessment`} aria-expanded={expanded} onClick={() => setExpandedAddress((current) => current === candidate.address ? null : candidate.address)}>{expanded ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button></div>; } })
+    column.display({ id: 'go', cell: ({ row }) => { const candidate = row.original; const expanded = expandedAddress === candidate.address; return <div className="row-actions"><ReassessButton chainId={candidate.chainId} address={candidate.address} label={candidate.symbol ?? candidate.name ?? candidate.address}/><QuickWatch candidate={candidate} lists={watchlists.data?.data ?? []} added={addedAddresses.has(candidate.address)} pending={watch.isPending && watch.variables.address === candidate.address} failed={watchErrorAddress === candidate.address} onWatch={(selected) => watch.mutate(selected)}/><button className="row-expand" type="button" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${candidate.symbol ?? candidate.address} assessment`} aria-expanded={expanded} onClick={() => setExpandedAddress((current) => current === candidate.address ? null : candidate.address)}>{expanded ? <ChevronDown size={17}/> : <ChevronRight size={17}/>}</button></div>; } })
   ], [addedAddresses, copiedAddress, expandedAddress, watch.isPending, watch.variables, watchErrorAddress, watchlists.data?.data]);
   const candidateData = query.data?.data;
   const pageCandidates = useMemo(() => (candidateData ?? []).slice(0, pageSize), [candidateData, pageSize]);

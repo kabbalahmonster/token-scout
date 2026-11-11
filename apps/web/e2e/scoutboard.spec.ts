@@ -24,6 +24,11 @@ test('operations exposes a live assessment queue and focused terminal timeline',
   await expect(page.getByText('Job timeline')).toBeVisible();
   await expect(page.getByText('Simulating the configured principal round trip.')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open assessment for FOX' })).toHaveAttribute('href', `/tokens/4663/${address}`);
+  const reassessment = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/v1/candidates/assess'));
+  await page.route('**/api/v1/candidates/assess', async (route) => route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ jobId: '22222222-2222-4222-8222-222222222222', chainId: 4663, address, state: 'queued', queue: { state: 'queued', position: 1, queuedAhead: 0, estimatedWaitSeconds: 5, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }) }));
+  await page.getByRole('button', { name: 'Queue FOX for reassessment' }).click();
+  expect((await reassessment).postDataJSON()).toEqual({ chainId: 4663, address });
+  await expect(page.getByRole('button', { name: 'FOX queued for reassessment' })).toBeDisabled();
 });
 
 test('candidate headers request ascending and descending sorts', async ({ page }) => {
@@ -105,6 +110,20 @@ test('a candidate can be added to the watchlist directly from Scoutboard', async
   const request = await added;
   expect(request.postDataJSON()).toEqual({ chainId: 4663, address });
   await expect(page.getByRole('button', { name: 'FOX is on a watchlist' })).toBeDisabled();
+  await expect(page.getByText('Assessment snapshot')).toHaveCount(0);
+});
+
+test('a candidate can be queued for reassessment directly from Scoutboard', async ({ page }) => {
+  const address = '0x1111111111111111111111111111111111111111';
+  const candidate = { chainId: 4663, address, symbol: 'FOX', name: 'Fox', decimals: 18, totalSupply: '1000', assetType: 'crypto', state: 'assessed', canonicalPair: null, discoveredAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', watched: false, score: 72, verdict: 'PASS', confidence: 81, scoreVersion: '1.0.0', flags: [], latestSnapshot: { marketCapUsd: '100000', liquidityUsd: '50000', volume24hUsd: '12000', pairCreatedAt: '2026-09-01T00:00:00Z' }, swingScore: 65, swingEventsPerDay: 1.25, routeState: 'available' };
+  await page.route('**/api/v1/candidates?**', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [candidate] }) }));
+  const queued = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/v1/candidates/assess'));
+  await page.route('**/api/v1/candidates/assess', async (route) => route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ jobId: '22222222-2222-4222-8222-222222222222', chainId: 4663, address, state: 'queued', queue: { state: 'queued', position: 1, queuedAhead: 0, estimatedWaitSeconds: 5, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }) }));
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Queue FOX for reassessment' }).click();
+  expect((await queued).postDataJSON()).toEqual({ chainId: 4663, address });
+  await expect(page.getByRole('button', { name: 'FOX queued for reassessment' })).toBeDisabled();
   await expect(page.getByText('Assessment snapshot')).toHaveCount(0);
 });
 

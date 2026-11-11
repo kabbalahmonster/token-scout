@@ -40,6 +40,20 @@ describe('API integration', () => {
     expect((await database.repositories.listCandidates())[0]?.state).toBe('queued');
   });
 
+  it('coalesces repeated reassessment clicks and promotes existing queued work', async () => {
+    database = openDatabase(':memory:');
+    app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
+    const address = '0x1111111111111111111111111111111111111111';
+    const existing = await database.repositories.enqueueScheduled('assess', `explore:4663:${address}:1`, { chainId: 4663, address });
+    const first = await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', payload: { chainId: 4663, address } });
+    const second = await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', payload: { chainId: 4663, address } });
+
+    expect(first.statusCode).toBe(202);
+    expect(first.json().jobId).toBe(existing);
+    expect(second.json().jobId).toBe(existing);
+    expect(await database.repositories.listJobActivity({ state: 'active' })).toMatchObject([{ id: existing, origin: 'manual', position: 1 }]);
+  });
+
   it('lists live and recent assessment activity with retained progress events', async () => {
     database = openDatabase(':memory:');
     app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);

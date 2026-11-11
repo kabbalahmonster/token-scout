@@ -90,7 +90,7 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
     if (chainId !== config.CHAIN_ID) return reply.code(422).send({ error: 'unsupported_chain' });
     const address = normalizeAddress(body.address);
     await database.repositories.upsertCandidate({ chainId, address, state: 'queued' });
-    const jobId = await database.repositories.enqueue('assess', `manual:${chainId}:${address}:${Date.now()}`, { chainId, address });
+    const jobId = await database.repositories.enqueueScheduled('assess', `manual:${chainId}:${address}:${Date.now()}`, { chainId, address });
     const queue = jobId ? await database.repositories.jobQueueStatus(jobId) : null;
     return reply.code(202).send({ jobId, chainId, address, state: 'queued', queue });
   });

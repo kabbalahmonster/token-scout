@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, Clock3, Copy, ExternalLink, KeyR
 import { Link } from 'react-router-dom';
 import { client, type JobActivity } from '../api.js';
 import { Age } from '../components/Status.js';
+import { ReassessButton } from '../components/ReassessButton.js';
 
 function duration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return '—';
@@ -21,7 +22,7 @@ function wait(seconds: number): string {
 function label(value: string | null): string { return (value ?? 'waiting').replaceAll('_', ' '); }
 function tone(state: string): string { return state === 'completed' ? 'verdict-pass' : state === 'failed' ? 'verdict-reject' : state === 'running' ? 'queue-running' : 'verdict-caution'; }
 
-function JobCard({ job, selected, onSelect }: { job: JobActivity; selected: boolean; onSelect: () => void }) {
+function JobCard({ job, selected, onSelect, onReassess }: { job: JobActivity; selected: boolean; onSelect: () => void; onReassess: (jobId: string) => void }) {
   const display = job.symbol ?? job.name ?? (job.address ? `${job.address.slice(0, 10)}…${job.address.slice(-6)}` : label(job.kind));
   const timing = job.state === 'queued'
     ? job.position === null ? `scheduled ${new Date(job.runAfter).toLocaleString()}` : `#${job.position} · starts ${wait(job.estimatedWaitSeconds)}`
@@ -37,6 +38,7 @@ function JobCard({ job, selected, onSelect }: { job: JobActivity; selected: bool
       {job.error ? <span className="job-error" title={job.error}><AlertTriangle size={14}/>{job.error}</span> : null}
     </button>
     <div className="job-actions">
+      {job.address && job.chainId ? <ReassessButton chainId={job.chainId} address={job.address} label={display} onQueued={(queued) => onReassess(queued.jobId)}/> : null}
       {job.address ? <button type="button" title="Copy contract" aria-label={`Copy contract ${job.address}`} onClick={() => { void navigator.clipboard.writeText(job.address!); }}><Copy size={14}/></button> : null}
       {job.address && job.chainId ? <Link title="Open assessment" aria-label={`Open assessment for ${display}`} to={`/tokens/${job.chainId}/${job.address}`}><ExternalLink size={14}/></Link> : null}
     </div>
@@ -78,7 +80,7 @@ export function Operations() {
         </div>
         <div className="job-list">
           {jobs.isError ? <div className="notice error">Could not load assessment activity: {jobs.error.message}</div> : null}
-          {jobs.data?.data.map((job) => <JobCard key={job.id} job={job} selected={selectedJob === job.id} onSelect={() => setSelectedJob((current) => current === job.id ? null : job.id)}/>)}
+          {jobs.data?.data.map((job) => <JobCard key={job.id} job={job} selected={selectedJob === job.id} onSelect={() => setSelectedJob((current) => current === job.id ? null : job.id)} onReassess={setSelectedJob}/>)}
           {!jobs.isPending && !jobs.data?.data.length ? <div className="console-empty"><Clock3/><strong>No matching jobs</strong><span>Try another state or source filter.</span></div> : null}
         </div>
       </section>
