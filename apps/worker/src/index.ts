@@ -65,9 +65,10 @@ async function runJob(): Promise<boolean> {
   const job = await database.repositories.claimJob(workerId);
   if (!job) return false;
   try {
-    if (job.kind === 'discover') await service.discover();
-    else if (job.kind === 'assess') await service.assess(Number(job.payload.chainId), String(job.payload.address));
+    if (job.kind === 'discover') { await database.repositories.updateJobProgress(job.id, 'discovering_markets', 10, 'Exploring indexed market feeds for eligible contracts.'); await service.discover(); }
+    else if (job.kind === 'assess') await service.assess(Number(job.payload.chainId), String(job.payload.address), (stage, percent, message) => database.repositories.updateJobProgress(job.id, stage, percent, message));
     else if (job.kind === 'retention') {
+      await database.repositories.updateJobProgress(job.id, 'maintaining_evidence', 10, 'Applying bounded evidence-retention policy.');
       if (config.COMPREHENSIVE_RETENTION_ENABLED) {
         const report = await database.repositories.housekeeping({
           rawDays: config.RAW_RETENTION_DAYS,

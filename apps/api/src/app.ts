@@ -100,6 +100,16 @@ export async function buildApp(config: AppConfig, database: OpenDatabase): Promi
     return status ?? reply.code(404).send({ error: 'not_found' });
   });
 
+  app.get('/api/v1/jobs', { schema: { tags: ['operations'], querystring: { type: 'object', properties: { state: { enum: ['active', 'queued', 'running', 'completed', 'failed'] }, kind: { enum: ['assess', 'discover', 'retention'] }, origin: { enum: ['manual', 'import', 'discovery', 'watchlist', 'refresh', 'universe', 'maintenance', 'other'] }, search: { type: 'string', maxLength: 100 }, limit: { type: 'integer', minimum: 1, maximum: 250 } } } } }, async (request) => {
+    const query = request.query as { state?: string; kind?: string; origin?: any; search?: string; limit?: number };
+    return { data: await database.repositories.listJobActivity({ ...query, limit: query.limit === undefined ? 100 : Number(query.limit) }), generatedAt: new Date().toISOString() };
+  });
+
+  app.get('/api/v1/job-events', { schema: { tags: ['operations'], querystring: { type: 'object', properties: { jobId: { type: 'string', format: 'uuid' }, limit: { type: 'integer', minimum: 1, maximum: 250 } } } } }, async (request) => {
+    const query = request.query as { jobId?: string; limit?: number };
+    return { data: await database.repositories.jobEvents(query.jobId, Number(query.limit ?? 100)), generatedAt: new Date().toISOString() };
+  });
+
   app.post('/api/v1/candidates/import', { schema: { tags: ['candidates'], body: { type: 'object', additionalProperties: false, properties: { chainId: { type: 'integer', minimum: 1 }, addresses: { type: 'array', maxItems: 500, items: { type: 'string' } }, csv: { type: 'string', maxLength: 100000 } }, anyOf: [{ required: ['addresses'] }, { required: ['csv'] }] } } }, async (request, reply) => {
     const body = request.body as { chainId?: number; addresses?: string[]; csv?: string };
     const chainId = body.chainId ?? config.CHAIN_ID;

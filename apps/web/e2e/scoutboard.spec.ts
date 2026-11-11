@@ -9,6 +9,23 @@ test('operator console renders boundaries and discovery navigation', async ({ pa
   await expect(page.getByLabel('Token contract')).toBeVisible();
 });
 
+test('operations exposes a live assessment queue and focused terminal timeline', async ({ page }) => {
+  const address = '0x1111111111111111111111111111111111111111';
+  await page.route('**/api/v1/operations', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ database: true, jobs: { queued: 1, running: 1, completed: 12, failed: 2 }, sources: [], process: {} }) }));
+  await page.route('**/api/v1/sources/status', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], generatedAt: new Date().toISOString() }) }));
+  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }));
+  await page.route('**/api/v1/jobs?**', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ id: '11111111-1111-4111-8111-111111111111', kind: 'assess', origin: 'manual', state: 'running', chainId: 4663, address, symbol: 'FOX', name: 'Fox', verdict: null, score: null, confidence: null, position: 0, queuedAhead: 0, estimatedWaitSeconds: 0, progressStage: 'checking_route', progressPercent: 80, attempts: 1, runAfter: '2026-11-11T20:00:00Z', createdAt: '2026-11-11T20:00:00Z', startedAt: '2026-11-11T20:00:02Z', completedAt: null, updatedAt: '2026-11-11T20:00:08Z', durationSeconds: 6, error: null }], generatedAt: new Date().toISOString() }) }));
+  await page.route('**/api/v1/job-events?**', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ id: 3, jobId: '11111111-1111-4111-8111-111111111111', eventType: 'progress', stage: 'checking_route', message: 'Simulating the configured principal round trip.', progressPercent: 80, createdAt: '2026-11-11T20:00:08Z' }], generatedAt: new Date().toISOString() }) }));
+  await page.goto('/operations');
+  await expect(page.getByRole('heading', { name: 'Assessment console' })).toBeVisible();
+  await expect(page.getByText('FOX')).toBeVisible();
+  await expect(page.getByText('checking route')).toBeVisible();
+  await page.getByRole('button', { name: 'Inspect FOX assessment timeline' }).click();
+  await expect(page.getByText('Job timeline')).toBeVisible();
+  await expect(page.getByText('Simulating the configured principal round trip.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open assessment for FOX' })).toHaveAttribute('href', `/tokens/4663/${address}`);
+});
+
 test('candidate headers request ascending and descending sorts', async ({ page }) => {
   await page.goto('/');
   const firstRequest = page.waitForRequest((request) => request.url().includes('/api/v1/candidates') && request.url().includes('sort=token') && request.url().includes('direction=asc'));

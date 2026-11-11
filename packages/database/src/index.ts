@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Decimal } from 'decimal.js';
-import { classifyAssetType, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type PoolAddress, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
+import { classifyAssetType, isEvmAddress, type Address, type AssetType, type Candidate, type CandidateState, type ContractScan, type MarketSnapshot, type PoolAddress, type RiskFlag, type RouteAssessment, type ScoreResult, type SourceStatus, type SwingStudy, type Verdict } from '@doomscout/domain';
 import type { DatabaseSchema } from './schema.js';
 
 const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
@@ -60,6 +60,13 @@ function riskFlagSummaries(flags: RiskFlag[]): RiskFlag[] {
   return visibleRiskFlags(flags).filter((flag) => flag.state === 'detected').map((flag) => ({ ...flag, explanation: '', evidence: [] }));
 }
 
+function sanitizeJobError(error: string): string {
+  return error
+    .replace(/https?:\/\/[^\s]+/gi, (value) => { try { const url = new URL(value); url.search = ''; url.hash = ''; return url.toString(); } catch { return '[upstream URL]'; } })
+    .replace(/(api[_-]?key|authorization|token)(?:=|:)[^\s,;]+/gi, '$1=[redacted]')
+    .slice(0, 500);
+}
+
 function snapshotFromRow(row: any): MarketSnapshot {
   return { id: Number(row.id), chainId: row.chain_id, tokenAddress: row.token_address as Address, pairAddress: row.pair_address as Address | null, dex: row.dex,
     priceNative: row.price_native, priceUsd: row.price_usd, liquidityUsd: row.liquidity_usd, fdvUsd: row.fdv_usd, marketCapUsd: row.market_cap_usd,
@@ -71,6 +78,16 @@ function snapshotFromRow(row: any): MarketSnapshot {
 export type CandidateSort = 'token' | 'asset_type' | 'score' | 'verdict' | 'state' | 'swing' | 'events_per_day' | 'liquidity' | 'market_cap' | 'volume' | 'volume_liquidity' | 'age' | 'route' | 'route_recovery' | 'flags' | 'updated';
 export interface CandidateFilters { state?: CandidateState; watched?: boolean; verdict?: Verdict; assetType?: AssetType; minScore?: number; minLiquidityUsd?: number; minVolumeUsd?: number; minPairAgeDays?: number; maxPairAgeDays?: number; routeState?: string; riskFlag?: string; search?: string; limit?: number; offset?: number; sort?: CandidateSort; direction?: 'asc' | 'desc' }
 export interface RefreshCandidate { chainId: number; address: Address; verdict: Verdict; score: number; lastAssessedAt: string }
+export type JobOrigin = 'manual' | 'import' | 'discovery' | 'watchlist' | 'refresh' | 'universe' | 'maintenance' | 'other';
+export interface JobActivity {
+  id: string; kind: string; origin: JobOrigin; state: string; chainId: number | null; address: Address | null;
+  symbol: string | null; name: string | null; verdict: Verdict | null; score: number | null; confidence: number | null;
+  position: number | null; queuedAhead: number; estimatedWaitSeconds: number; progressStage: string | null; progressPercent: number;
+  attempts: number; runAfter: string; createdAt: string; startedAt: string | null; completedAt: string | null; updatedAt: string;
+  durationSeconds: number | null; error: string | null;
+}
+export interface JobActivityFilters { state?: string; kind?: string; origin?: JobOrigin; search?: string; limit?: number }
+export interface JobEvent { id: number; jobId: string; eventType: string; stage: string | null; message: string; progressPercent: number | null; createdAt: string }
 export interface HousekeepingPolicy {
   rawDays: number; fiveMinuteDays: number; hourlyDays: number;
   candidateArchiveDays: number; archivedCandidateDays: number;
@@ -369,7 +386,15 @@ export class Repositories {
 
   async recordDiscovery(input: { chainId: number; tokenAddress: Address | null; source: string; sourceId: string | null; sourceTime: string | null; outcome: string; errorCode?: string }): Promise<void> { const ingestedAt = new Date().toISOString(); const fingerprint = createHash('sha256').update(JSON.stringify({ ...input, bucket: ingestedAt.slice(0, 16) })).digest('hex'); await this.db.insertInto('discovery_records').values({ chain_id: input.chainId, token_address: input.tokenAddress, source: input.source, source_id: input.sourceId, source_time: input.sourceTime, ingested_at: ingestedAt, outcome: input.outcome, error_code: input.errorCode ?? null, fingerprint }).onConflict((conflict) => conflict.column('fingerprint').doNothing()).execute(); }
 
-  async enqueue(kind: string, dedupeKey: string, payload: unknown, runAfter = new Date().toISOString()): Promise<string | null> { const id = randomUUID(); const now = new Date().toISOString(); const result = await this.db.insertInto('jobs').values({ id, kind, dedupe_key: dedupeKey, payload_json: JSON.stringify(payload), state: 'queued', run_after: runAfter, attempts: 0, locked_at: null, locked_by: null, last_error: null, created_at: now, updated_at: now }).onConflict((conflict) => conflict.doNothing()).returning('id').executeTakeFirst(); return result?.id ?? null; }
+  async enqueue(kind: string, dedupeKey: string, payload: unknown, runAfter = new Date().toISOString()): Promise<string | null> {
+    const id = randomUUID(); const now = new Date().toISOString();
+    return this.db.transaction().execute(async (trx) => {
+      const result = await trx.insertInto('jobs').values({ id, kind, dedupe_key: dedupeKey, payload_json: JSON.stringify(payload), state: 'queued', run_after: runAfter, attempts: 0, locked_at: null, locked_by: null, last_error: null, progress_stage: runAfter > now ? 'scheduled' : 'queued', progress_percent: 0, started_at: null, completed_at: null, result_verdict: null, result_score: null, result_confidence: null, created_at: now, updated_at: now }).onConflict((conflict) => conflict.doNothing()).returning('id').executeTakeFirst();
+      if (!result) return null;
+      await trx.insertInto('job_events').values({ job_id: id, event_type: 'queued', stage: runAfter > now ? 'scheduled' : 'queued', message: runAfter > now ? 'Assessment scheduled for a later retry window.' : 'Assessment entered the queue.', progress_percent: 0, created_at: now }).execute();
+      return id;
+    });
+  }
   async enqueueScheduled(kind: string, dedupeKey: string, payload: unknown, runAfter = new Date().toISOString()): Promise<string | null> {
     // Scheduled bucket keys are permanent idempotency keys. The active-job
     // unique index prevents concurrent duplicates, while this historical check
@@ -387,42 +412,152 @@ export class Repositories {
     return 4;
   }
 
-  async jobQueueStatus(id: string): Promise<{ state: string; position: number | null; queuedAhead: number; estimatedWaitSeconds: number; createdAt: string; updatedAt: string } | null> {
-    const job = await this.db.selectFrom('jobs').selectAll().where('id', '=', id).executeTakeFirst();
-    if (!job) return null;
-    if (job.state !== 'queued') return { state: job.state, position: job.state === 'running' ? 0 : null, queuedAhead: 0, estimatedWaitSeconds: 0, createdAt: job.created_at, updatedAt: job.updated_at };
+  private jobOrigin(kind: string, dedupeKey: string): JobOrigin {
+    if (dedupeKey.startsWith('manual:')) return 'manual';
+    if (dedupeKey.startsWith('import:')) return 'import';
+    if (kind === 'discover') return 'discovery';
+    if (dedupeKey.startsWith('watch:')) return 'watchlist';
+    if (dedupeKey.startsWith('refresh:')) return 'refresh';
+    if (dedupeKey.startsWith('universe:')) return 'universe';
+    if (kind === 'retention') return 'maintenance';
+    return 'other';
+  }
 
-    const due = await this.db.selectFrom('jobs').select(['id', 'kind', 'dedupe_key', 'run_after', 'created_at']).where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).execute();
+  private fallbackJobSeconds(kind: string): number { return kind === 'discover' ? 180 : kind === 'retention' ? 60 : 15; }
+
+  private async jobEstimates(): Promise<Map<string, number>> {
+    const completed = await this.db.selectFrom('jobs').select(['kind', 'started_at', 'completed_at']).where('state', '=', 'completed').where('started_at', 'is not', null).where('completed_at', 'is not', null).orderBy('completed_at', 'desc').limit(100).execute();
+    const samples = new Map<string, number[]>();
+    for (const job of completed) {
+      const seconds = (Date.parse(job.completed_at!) - Date.parse(job.started_at!)) / 1000;
+      if (!Number.isFinite(seconds) || seconds < 0 || seconds > 3600) continue;
+      const values = samples.get(job.kind) ?? []; values.push(seconds); samples.set(job.kind, values);
+    }
+    return new Map([...samples].map(([kind, values]) => {
+      const sorted = values.sort((a, b) => a - b); const middle = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+      return [kind, Math.max(2, Math.ceil(median))];
+    }));
+  }
+
+  private async queueContext(now = new Date().toISOString()): Promise<{ due: DatabaseSchema['jobs'][]; positions: Map<string, number>; waits: Map<string, number>; running: DatabaseSchema['jobs'][] }> {
+    const [due, running, estimates] = await Promise.all([
+      this.db.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', now).execute(),
+      this.db.selectFrom('jobs').selectAll().where('state', '=', 'running').orderBy('started_at').execute(),
+      this.jobEstimates()
+    ]);
     due.sort((left, right) => this.jobPriority(left.kind, left.dedupe_key) - this.jobPriority(right.kind, right.dedupe_key)
-      || left.run_after.localeCompare(right.run_after)
-      || left.created_at.localeCompare(right.created_at)
-      || left.id.localeCompare(right.id));
-    const index = due.findIndex((candidate) => candidate.id === id);
-    const queuedAhead = Math.max(0, index);
-    const running = await this.db.selectFrom('jobs').select(['kind', 'dedupe_key', 'locked_at']).where('state', '=', 'running').orderBy('locked_at').executeTakeFirst();
-    const runningEstimate = running
-      ? running.kind === 'discover' ? 180 : running.kind === 'retention' ? 60 : 15
-      : 0;
-    const runningElapsed = running?.locked_at ? Math.max(0, (Date.now() - Date.parse(running.locked_at)) / 1000) : 0;
-    const queuedEstimate = due.slice(0, queuedAhead).reduce((seconds, candidate) => seconds + (candidate.kind === 'discover' ? 180 : candidate.kind === 'retention' ? 60 : 15), 0);
-    return {
-      state: job.state,
-      position: index >= 0 ? index + 1 : null,
-      queuedAhead,
-      estimatedWaitSeconds: Math.max(0, Math.ceil(runningEstimate - runningElapsed + queuedEstimate)),
-      createdAt: job.created_at,
-      updatedAt: job.updated_at
-    };
+      || left.run_after.localeCompare(right.run_after) || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+    const estimate = (job: Pick<DatabaseSchema['jobs'], 'kind'>) => estimates.get(job.kind) ?? this.fallbackJobSeconds(job.kind);
+    const runningWait = running.reduce((seconds, job) => {
+      const elapsed = job.started_at ? Math.max(0, (Date.parse(now) - Date.parse(job.started_at)) / 1000) : 0;
+      return seconds + Math.max(0, estimate(job) - elapsed);
+    }, 0);
+    let cumulative = runningWait;
+    const positions = new Map<string, number>(); const waits = new Map<string, number>();
+    due.forEach((job, index) => { positions.set(job.id, index + 1); waits.set(job.id, Math.max(0, Math.ceil(cumulative))); cumulative += estimate(job); });
+    return { due, positions, waits, running };
   }
 
-  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> { return this.db.transaction().execute(async (trx) => { const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' THEN 0 WHEN kind = 'discover' THEN 1 WHEN kind = 'retention' THEN 2 WHEN dedupe_key LIKE 'watch:%' THEN 3 WHEN dedupe_key LIKE 'refresh:%' THEN 5 WHEN dedupe_key LIKE 'universe:%' THEN 6 ELSE 4 END`).orderBy('run_after').orderBy('created_at').orderBy('id').executeTakeFirst(); if (!row) return null; const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: new Date().toISOString(), locked_by: workerId, attempts: row.attempts + 1, updated_at: new Date().toISOString() }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst(); return updated ? { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts } : null; }); }
-  async recoverExpiredJobLeases(lockedBefore: string): Promise<number> {
-    const result = await this.db.updateTable('jobs').set({ state: 'queued', locked_at: null, locked_by: null, updated_at: new Date().toISOString() })
-      .where('state', '=', 'running').where('locked_at', '<=', lockedBefore).executeTakeFirst();
-    return Number(result.numUpdatedRows ?? 0n);
+  private async jobActivityFromRows(rows: DatabaseSchema['jobs'][]): Promise<JobActivity[]> {
+    const context = await this.queueContext();
+    const identities = new Map<string, { chainId: number; address: Address }>();
+    for (const row of rows) {
+      try {
+        const payload = JSON.parse(row.payload_json) as { chainId?: unknown; address?: unknown };
+        if (typeof payload.chainId === 'number' && typeof payload.address === 'string' && isEvmAddress(payload.address)) identities.set(`${payload.chainId}:${payload.address.toLowerCase()}`, { chainId: payload.chainId, address: payload.address.toLowerCase() as Address });
+      } catch { /* malformed historical payloads remain visible without identity */ }
+    }
+    const candidates = new Map<string, { symbol: string | null; name: string | null; verdict: Verdict; score: number | null; confidence: number }>();
+    if (identities.size) {
+      const rows = await this.db.selectFrom('candidates').select(['chain_id', 'address', 'symbol', 'name', 'verdict', 'score', 'confidence']).execute();
+      for (const candidate of rows) { const key = `${candidate.chain_id}:${candidate.address.toLowerCase()}`; if (identities.has(key)) candidates.set(key, { symbol: candidate.symbol, name: candidate.name, verdict: candidate.verdict as Verdict, score: candidate.score, confidence: candidate.confidence }); }
+    }
+    return rows.map((row) => {
+      let chainId: number | null = null; let address: Address | null = null;
+      try { const payload = JSON.parse(row.payload_json) as { chainId?: unknown; address?: unknown }; if (typeof payload.chainId === 'number') chainId = payload.chainId; if (typeof payload.address === 'string' && isEvmAddress(payload.address)) address = payload.address.toLowerCase() as Address; } catch { /* see above */ }
+      const candidate = chainId !== null && address ? candidates.get(`${chainId}:${address}`) : undefined;
+      const durationSeconds = row.started_at ? Math.max(0, Math.round((Date.parse(row.completed_at ?? new Date().toISOString()) - Date.parse(row.started_at)) / 1000)) : null;
+      return { id: row.id, kind: row.kind, origin: this.jobOrigin(row.kind, row.dedupe_key), state: row.state, chainId, address, symbol: candidate?.symbol ?? null, name: candidate?.name ?? null, verdict: (row.result_verdict as Verdict | null) ?? candidate?.verdict ?? null, score: row.result_score ?? candidate?.score ?? null, confidence: row.result_confidence ?? candidate?.confidence ?? null, position: row.state === 'running' ? 0 : context.positions.get(row.id) ?? null, queuedAhead: row.state === 'queued' ? Math.max(0, (context.positions.get(row.id) ?? 1) - 1) : 0, estimatedWaitSeconds: context.waits.get(row.id) ?? 0, progressStage: row.progress_stage, progressPercent: row.progress_percent, attempts: row.attempts, runAfter: row.run_after, createdAt: row.created_at, startedAt: row.started_at, completedAt: row.completed_at, updatedAt: row.updated_at, durationSeconds, error: row.last_error };
+    });
   }
-  async finishJob(id: string): Promise<void> { await this.db.updateTable('jobs').set({ state: 'completed', locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).where('id', '=', id).execute(); }
-  async failJob(id: string, error: string, retryAt?: string): Promise<void> { await this.db.updateTable('jobs').set({ state: retryAt ? 'queued' : 'failed', run_after: retryAt ?? new Date().toISOString(), last_error: error.slice(0, 500), locked_at: null, locked_by: null, updated_at: new Date().toISOString() }).where('id', '=', id).execute(); }
+
+  async jobQueueStatus(id: string): Promise<JobActivity | null> {
+    const job = await this.db.selectFrom('jobs').selectAll().where('id', '=', id).executeTakeFirst();
+    return job ? (await this.jobActivityFromRows([job]))[0] ?? null : null;
+  }
+
+  async listJobActivity(filters: JobActivityFilters = {}): Promise<JobActivity[]> {
+    const limit = Math.max(1, Math.min(filters.limit ?? 100, 250));
+    let query = this.db.selectFrom('jobs').selectAll();
+    if (filters.state === 'active') query = query.where('state', 'in', ['queued', 'running']);
+    else if (filters.state) query = query.where('state', '=', filters.state);
+    if (filters.kind) query = query.where('kind', '=', filters.kind);
+    const activeView = ['active', 'queued', 'running'].includes(filters.state ?? '');
+    const fetchLimit = activeView ? 2000 : Math.max(limit, filters.search || filters.origin ? 500 : limit);
+    const rows = await query.orderBy(sql`CASE state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END`).orderBy('updated_at', 'desc').limit(fetchLimit).execute();
+    let activity = await this.jobActivityFromRows(rows);
+    if (filters.origin) activity = activity.filter((job) => job.origin === filters.origin);
+    if (filters.search) { const term = filters.search.toLowerCase(); activity = activity.filter((job) => [job.address, job.symbol, job.name, job.id].some((value) => value?.toLowerCase().includes(term))); }
+    activity.sort((left, right) => {
+      const rank = (state: string) => state === 'running' ? 0 : state === 'queued' ? 1 : 2;
+      const stateDifference = rank(left.state) - rank(right.state); if (stateDifference) return stateDifference;
+      if (left.state === 'queued' && right.state === 'queued') return (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER) || left.runAfter.localeCompare(right.runAfter);
+      return right.updatedAt.localeCompare(left.updatedAt);
+    });
+    return activity.slice(0, limit);
+  }
+
+  async jobEvents(jobId?: string, limit = 100): Promise<JobEvent[]> {
+    let query = this.db.selectFrom('job_events').selectAll();
+    if (jobId) query = query.where('job_id', '=', jobId);
+    const rows = await query.orderBy('created_at', 'desc').orderBy('id', 'desc').limit(Math.max(1, Math.min(limit, 250))).execute();
+    return rows.map((row) => ({ id: row.id, jobId: row.job_id, eventType: row.event_type, stage: row.stage, message: row.message, progressPercent: row.progress_percent, createdAt: row.created_at }));
+  }
+
+  async claimJob(workerId: string): Promise<{ id: string; kind: string; payload: any; attempts: number } | null> {
+    return this.db.transaction().execute(async (trx) => {
+      const row = await trx.selectFrom('jobs').selectAll().where('state', '=', 'queued').where('run_after', '<=', new Date().toISOString()).orderBy(sql`CASE WHEN dedupe_key LIKE 'manual:%' THEN 0 WHEN kind = 'discover' THEN 1 WHEN kind = 'retention' THEN 2 WHEN dedupe_key LIKE 'watch:%' THEN 3 WHEN dedupe_key LIKE 'refresh:%' THEN 5 WHEN dedupe_key LIKE 'universe:%' THEN 6 ELSE 4 END`).orderBy('run_after').orderBy('created_at').orderBy('id').executeTakeFirst();
+      if (!row) return null;
+      const now = new Date().toISOString();
+      const updated = await trx.updateTable('jobs').set({ state: 'running', locked_at: now, locked_by: workerId, attempts: row.attempts + 1, last_error: null, progress_stage: 'starting', progress_percent: 1, started_at: now, completed_at: null, updated_at: now }).where('id', '=', row.id).where('state', '=', 'queued').returningAll().executeTakeFirst();
+      if (!updated) return null;
+      await trx.insertInto('job_events').values({ job_id: updated.id, event_type: 'started', stage: 'starting', message: `Worker started ${updated.kind}.`, progress_percent: 1, created_at: now }).execute();
+      return { id: updated.id, kind: updated.kind, payload: JSON.parse(updated.payload_json), attempts: updated.attempts };
+    });
+  }
+
+  async updateJobProgress(id: string, stage: string, progressPercent: number, message: string): Promise<void> {
+    const now = new Date().toISOString(); const progress = Math.max(1, Math.min(99, Math.round(progressPercent))); const safeStage = stage.slice(0, 80); const safeMessage = message.slice(0, 300);
+    await this.db.transaction().execute(async (trx) => {
+      const updated = await trx.updateTable('jobs').set({ progress_stage: safeStage, progress_percent: progress, updated_at: now }).where('id', '=', id).where('state', '=', 'running').returning('id').executeTakeFirst();
+      if (updated) await trx.insertInto('job_events').values({ job_id: id, event_type: 'progress', stage: safeStage, message: safeMessage, progress_percent: progress, created_at: now }).execute();
+    });
+  }
+  async recoverExpiredJobLeases(lockedBefore: string): Promise<number> {
+    const now = new Date().toISOString();
+    return this.db.transaction().execute(async (trx) => {
+      const expired = await trx.selectFrom('jobs').select('id').where('state', '=', 'running').where('locked_at', '<=', lockedBefore).execute();
+      if (!expired.length) return 0;
+      await trx.updateTable('jobs').set({ state: 'queued', locked_at: null, locked_by: null, started_at: null, progress_stage: 'lease_recovered', progress_percent: 0, updated_at: now }).where('id', 'in', expired.map((job) => job.id)).execute();
+      await trx.insertInto('job_events').values(expired.map((job) => ({ job_id: job.id, event_type: 'lease_recovered', stage: 'lease_recovered', message: 'Expired worker lease recovered; job returned to the queue.', progress_percent: 0, created_at: now }))).execute();
+      return expired.length;
+    });
+  }
+  async finishJob(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.transaction().execute(async (trx) => {
+      const job = await trx.selectFrom('jobs').select(['kind', 'payload_json']).where('id', '=', id).executeTakeFirst();
+      let result: { verdict: string; score: number | null; confidence: number } | undefined;
+      if (job?.kind === 'assess') try { const payload = JSON.parse(job.payload_json) as { chainId?: unknown; address?: unknown }; if (typeof payload.chainId === 'number' && typeof payload.address === 'string' && isEvmAddress(payload.address)) result = await trx.selectFrom('candidates').select(['verdict', 'score', 'confidence']).where('chain_id', '=', payload.chainId).where('address', '=', payload.address.toLowerCase()).executeTakeFirst(); } catch { /* completion remains valid without a result snapshot */ }
+      await trx.updateTable('jobs').set({ state: 'completed', progress_stage: 'completed', progress_percent: 100, locked_at: null, locked_by: null, completed_at: now, result_verdict: result?.verdict ?? null, result_score: result?.score ?? null, result_confidence: result?.confidence ?? null, updated_at: now }).where('id', '=', id).execute();
+      await trx.insertInto('job_events').values({ job_id: id, event_type: 'completed', stage: 'completed', message: result ? `Assessment completed: ${result.verdict}${result.score === null ? '' : ` ${result.score.toFixed(1)}`}.` : 'Assessment completed and results were persisted.', progress_percent: 100, created_at: now }).execute();
+    });
+  }
+  async failJob(id: string, error: string, retryAt?: string): Promise<void> {
+    const now = new Date().toISOString(); const safeError = sanitizeJobError(error); const retrying = Boolean(retryAt);
+    await this.db.transaction().execute(async (trx) => { await trx.updateTable('jobs').set({ state: retrying ? 'queued' : 'failed', run_after: retryAt ?? now, last_error: safeError, progress_stage: retrying ? 'retrying' : 'failed', progress_percent: 0, locked_at: null, locked_by: null, started_at: retrying ? null : undefined, completed_at: retrying ? null : now, updated_at: now }).where('id', '=', id).execute(); await trx.insertInto('job_events').values({ job_id: id, event_type: retrying ? 'retry_scheduled' : 'failed', stage: retrying ? 'retrying' : 'failed', message: retrying ? `Attempt failed; retry scheduled. ${safeError}` : `Assessment failed after its retry budget. ${safeError}`, progress_percent: 0, created_at: now }).execute(); });
+  }
   async jobStats(): Promise<Record<string, number>> { const rows = await this.db.selectFrom('jobs').select(['state', ({ fn }) => fn.countAll<number>().as('count')]).groupBy('state').execute(); return Object.fromEntries(rows.map((row) => [row.state, Number(row.count)])); }
 
   async emit(eventType: string, payload: unknown): Promise<void> { await this.db.insertInto('app_events').values({ event_type: eventType, payload_json: JSON.stringify(payload), created_at: new Date().toISOString() }).execute(); }

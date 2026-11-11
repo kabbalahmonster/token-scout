@@ -57,6 +57,36 @@ describe('repositories', () => {
     expect((await database.repositories.claimJob('test'))?.payload).toEqual({ lane: 'discovery' });
   });
 
+  it('retains a searchable assessment timeline from queue through completion', async () => {
+    database = openDatabase(':memory:');
+    const address = '0x1111111111111111111111111111111111111111' as const;
+    await database.repositories.upsertCandidate({ chainId: 4663, address, symbol: 'FOX', name: 'Fox Token' });
+    const id = await database.repositories.enqueue('assess', `manual:4663:${address}:1`, { chainId: 4663, address });
+    expect(await database.repositories.listJobActivity({ state: 'active', search: 'FOX' })).toMatchObject([{ id, origin: 'manual', state: 'queued', position: 1, symbol: 'FOX', progressStage: 'queued' }]);
+
+    const claimed = await database.repositories.claimJob('worker-test');
+    expect(claimed?.id).toBe(id);
+    await database.repositories.updateJobProgress(id!, 'checking_route', 80, 'Simulating the configured route.');
+    expect(await database.repositories.jobQueueStatus(id!)).toMatchObject({ state: 'running', position: 0, progressStage: 'checking_route', progressPercent: 80, attempts: 1 });
+    await database.repositories.finishJob(id!);
+
+    const completed = await database.repositories.listJobActivity({ state: 'completed', origin: 'manual' });
+    expect(completed[0]).toMatchObject({ id, state: 'completed', progressStage: 'completed', progressPercent: 100, symbol: 'FOX' });
+    expect(completed[0]?.completedAt).toBeTypeOf('string');
+    expect((await database.repositories.jobEvents(id!)).map((event) => event.eventType)).toEqual(['completed', 'progress', 'started', 'queued']);
+  });
+
+  it('redacts credentials and URL query strings from retained job failures', async () => {
+    database = openDatabase(':memory:');
+    const id = await database.repositories.enqueue('assess', 'manual:failure', {});
+    await database.repositories.claimJob('worker-test');
+    await database.repositories.failJob(id!, 'provider https://example.test/quote?api_key=secret token:also-secret exploded');
+    const failed = await database.repositories.jobQueueStatus(id!);
+    expect(failed?.error).not.toContain('secret');
+    expect(failed?.error).toContain('https://example.test/quote');
+    expect(failed).toMatchObject({ state: 'failed', progressStage: 'failed', completedAt: expect.any(String) });
+  });
+
   it('recovers expired running job leases without touching current work', async () => {
     database = openDatabase(':memory:');
     await database.repositories.enqueue('discover', 'expired', {});

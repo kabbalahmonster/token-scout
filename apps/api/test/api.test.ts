@@ -40,6 +40,25 @@ describe('API integration', () => {
     expect((await database.repositories.listCandidates())[0]?.state).toBe('queued');
   });
 
+  it('lists live and recent assessment activity with retained progress events', async () => {
+    database = openDatabase(':memory:');
+    app = await buildApp(loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:' }), database);
+    const address = '0x1111111111111111111111111111111111111111';
+    const queued = await app.inject({ method: 'POST', url: '/api/v1/candidates/assess', payload: { chainId: 4663, address } });
+    const id = queued.json().jobId as string;
+    await database.repositories.claimJob('api-test');
+    await database.repositories.updateJobProgress(id, 'analyzing_swings', 68, 'Measuring retained movement.');
+
+    const activity = await app.inject({ method: 'GET', url: '/api/v1/jobs?state=active&origin=manual&search=0x1111' });
+    expect(activity.statusCode).toBe(200);
+    expect(activity.json().data[0]).toMatchObject({ id, address, state: 'running', progressStage: 'analyzing_swings', progressPercent: 68 });
+    const events = await app.inject({ method: 'GET', url: `/api/v1/job-events?jobId=${id}` });
+    expect(events.statusCode).toBe(200);
+    const eventBody = events.json<{ data: Array<{ eventType: string }> }>();
+    expect(eventBody.data.map((event) => event.eventType)).toEqual(['progress', 'started', 'queued']);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/jobs?state=bananas' })).statusCode).toBe(400);
+  });
+
   it('requires bearer auth for non-local mutations', async () => {
     database = openDatabase(':memory:');
     app = await buildApp(loadConfig({ NODE_ENV: 'production', HOST: '0.0.0.0', AUTH_TOKEN: 'x'.repeat(32), DATABASE_PATH: ':memory:' }), database);

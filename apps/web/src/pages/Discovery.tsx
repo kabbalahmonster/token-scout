@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { FileUp, Radar } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { client, type AssessmentQueued, type QueueStatus } from '../api.js';
 
 function waitLabel(seconds: number): string {
@@ -12,11 +13,12 @@ function waitLabel(seconds: number): string {
 
 function QueueNotice({ submission, status }: { submission: AssessmentQueued; status: QueueStatus | undefined }) {
   const queue = status ?? submission.queue;
-  if (!queue) return <div className="notice success">High-priority assessment queued.</div>;
-  if (queue.state === 'running') return <div className="notice success">Assessment is running now for {submission.address.slice(0, 10)}…</div>;
-  if (queue.state === 'completed') return <div className="notice success">Assessment complete. It is now available on the Scoutboard.</div>;
-  if (queue.state === 'failed') return <div className="notice error">Assessment failed after its retry budget. Check Operations for provider health.</div>;
-  return <div className="notice success">High priority · queue position {queue.position ?? '—'} · estimated start {waitLabel(queue.estimatedWaitSeconds)}.</div>;
+  const tracker = <Link className="queue-tracker" to={`/operations?job=${submission.jobId}`}>Open live assessment console →</Link>;
+  if (!queue) return <div className="notice success">High-priority assessment queued.{tracker}</div>;
+  if (queue.state === 'running') return <div className="notice success"><span>Running · {queue.progressStage?.replaceAll('_', ' ') ?? 'starting'} · {queue.progressPercent ?? 0}%</span><span className="mini-progress"><i style={{ width: `${queue.progressPercent ?? 0}%` }}/></span>{tracker}</div>;
+  if (queue.state === 'completed') return <div className="notice success">Assessment complete. It is now available on the Scoutboard.{tracker}</div>;
+  if (queue.state === 'failed') return <div className="notice error">Assessment failed after its retry budget. Check the timeline for the exact stage.{tracker}</div>;
+  return <div className="notice success">High priority · queue position {queue.position ?? '—'} · estimated start {waitLabel(queue.estimatedWaitSeconds)}.{tracker}</div>;
 }
 
 export function Discovery() {

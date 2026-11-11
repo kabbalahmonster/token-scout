@@ -30,6 +30,13 @@ research records are intentional. Production mutations always require the
 token, including behind a loopback reverse proxy. Health and readiness remain
 unauthenticated for orchestration.
 
+The Operations assessment console is the queue's operator view. It updates
+every two seconds, shows manual-priority position and estimated start, exposes
+the running assessment stage, and retains recent completions and final failures.
+Selecting a row narrows the terminal readout to that job; address copy and
+assessment drill-down remain available from the same row. Queue and timeline
+views are observational only and cannot cancel, reprioritize, or retry work.
+
 For a non-Compose reverse-proxy deployment, set `TRUST_PROXY=true` only while
 the API remains loopback/private-network bound. Never combine it with a
 directly internet-accessible API port, because clients could forge forwarding

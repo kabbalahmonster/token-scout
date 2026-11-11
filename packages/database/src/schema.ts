@@ -18,7 +18,8 @@ export interface SnapshotTable {
 }
 export interface PairTable { chain_id: number; token_address: string; pair_address: string; dex: string; url: string | null; quote_token_address: string | null; created_at: string | null; liquidity_usd: string | null; last_seen_at: string }
 export interface SourceStatusTable { source: string; state: string; checked_at: string; last_success_at: string | null; latency_ms: number | null; failures: number; circuit_open_until: string | null; message: string | null }
-export interface JobTable { id: string; kind: string; dedupe_key: string; payload_json: string; state: string; run_after: string; attempts: number; locked_at: string | null; locked_by: string | null; last_error: string | null; created_at: string; updated_at: string }
+export interface JobTable { id: string; kind: string; dedupe_key: string; payload_json: string; state: string; run_after: string; attempts: number; locked_at: string | null; locked_by: string | null; last_error: string | null; progress_stage: string | null; progress_percent: number; started_at: string | null; completed_at: string | null; result_verdict: string | null; result_score: number | null; result_confidence: number | null; created_at: string; updated_at: string }
+export interface JobEventTable { id: Generated<number>; job_id: string; event_type: string; stage: string | null; message: string; progress_percent: number | null; created_at: string }
 export interface WatchlistTable { id: string; name: string; labels_json: string; assessment_budget_wei: string | null; intended_position_count: number | null; created_at: string; updated_at: string }
 export interface WatchlistItemTable { watchlist_id: string; chain_id: number; token_address: string; tags_json: string; note: string | null; created_at: string }
 export interface JsonResultTable { id: Generated<number>; chain_id: number; token_address: string; result_json: string }
@@ -32,7 +33,7 @@ export interface DiscoveryTable { id: Generated<number>; chain_id: number; token
 export interface AggregateTable { chain_id: number; token_address: string; resolution_seconds: number; bucket_at: string; open_price: string | null; high_price: string | null; low_price: string | null; close_price: string | null; sample_count: number; latest_snapshot_json: string }
 
 export interface DatabaseSchema {
-  candidates: CandidateTable; market_snapshots: SnapshotTable; pairs: PairTable; source_status: SourceStatusTable; jobs: JobTable;
+  candidates: CandidateTable; market_snapshots: SnapshotTable; pairs: PairTable; source_status: SourceStatusTable; jobs: JobTable; job_events: JobEventTable;
   watchlists: WatchlistTable; watchlist_items: WatchlistItemTable; swing_studies: SwingStudyTable; contract_scans: ContractScanTable;
   route_assessments: RouteAssessmentTable; score_history: ScoreHistoryTable; app_events: AppEventTable; alerts: AlertTable; discovery_records: DiscoveryTable;
   market_aggregates: AggregateTable;
