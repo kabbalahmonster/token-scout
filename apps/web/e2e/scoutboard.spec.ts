@@ -157,8 +157,13 @@ test('token detail survives the loading-to-data render transition', async ({ pag
   const candidate = { chainId: 4663, address, symbol: 'FOX', name: 'Fox', decimals: 18, totalSupply: '1000', assetType: 'crypto', state: 'assessed', canonicalPair: null, discoveredAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', watched: false, score: 50, verdict: 'CAUTION', confidence: 40, scoreVersion: '1.0.0', flags: [], latestSnapshot: null };
   await page.route(`**/api/v1/candidates/4663/${address}`, async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidate, swings: null, route: null, contract: null, score: null, pairs: [] }) }));
   await page.route(`**/api/v1/candidates/4663/${address}/history`, async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }));
+  const queued = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/v1/candidates/assess'));
+  await page.route('**/api/v1/candidates/assess', async (route) => route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ jobId: '22222222-2222-4222-8222-222222222222', chainId: 4663, address, state: 'queued', queue: { state: 'queued', position: 1, queuedAhead: 0, estimatedWaitSeconds: 5, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }) }));
   await page.goto(`/tokens/4663/${address}`);
   await expect(page.getByRole('heading', { name: /FOX/ })).toBeVisible();
   await expect(page.getByRole('button', { name: `Copy contract address ${address}` })).toBeVisible();
+  await page.getByRole('button', { name: 'Queue FOX for reassessment' }).click();
+  expect((await queued).postDataJSON()).toEqual({ chainId: 4663, address });
+  await expect(page.getByRole('button', { name: 'FOX queued for reassessment' })).toBeDisabled();
   await expect(page.getByText(/React error/)).toHaveCount(0);
 });
